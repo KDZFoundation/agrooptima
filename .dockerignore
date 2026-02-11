@@ -1,0 +1,15 @@
+
+node_modules
+dist
+build
+.git
+.env
+README.md
+Dockerfile
+*.ts
+*.tsx
+*.json
+!metadata.json
+!package.json
+public
+src
