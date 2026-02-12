@@ -26,6 +26,9 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
     totalArea: 0,
     status: 'ACTIVE'
   });
+  
+  // Validation State
+  const [errors, setErrors] = useState<{ producerId?: string }>({});
 
   const filteredClients = clients.filter(client => {
       const full = `${client.firstName} ${client.lastName}`.toLowerCase();
@@ -34,6 +37,7 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
   });
 
   const handleOpenModal = (client?: FarmerClient) => {
+    setErrors({}); // Reset errors
     if (client) {
         setEditingClient(client);
         setFormData({
@@ -61,8 +65,17 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
     
     // VALIDATION: Ensure Producer ID is valid (API requires 9 chars)
     if (!formData.producerId || formData.producerId.length !== 9) {
-        alert("Numer EP musi składać się z dokładnie 9 cyfr.");
+        setErrors({ producerId: "Numer EP musi składać się z dokładnie 9 cyfr." });
         return;
+    }
+
+    // Check if ID is unique (only for new clients)
+    if (!editingClient) {
+        const exists = clients.some(c => c.producerId === formData.producerId);
+        if (exists) {
+            setErrors({ producerId: "Ten numer EP już istnieje w bazie." });
+            return;
+        }
     }
 
     // VALIDATION: Sanitize Area (prevent NaN or null sending to API which expects float)
@@ -255,11 +268,22 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                             pattern="\d{9}"
                             disabled={!!editingClient} // Cannot change ID once created
                             value={formData.producerId}
-                            onChange={(e) => setFormData({...formData, producerId: e.target.value.replace(/\D/g,'')})}
-                            className={`w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono tracking-widest ${editingClient ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                            onChange={(e) => {
+                                setFormData({...formData, producerId: e.target.value.replace(/\D/g,'')});
+                                if (errors.producerId) setErrors({...errors, producerId: undefined});
+                            }}
+                            className={`w-full border rounded-lg p-2.5 font-mono tracking-widest focus:outline-none focus:ring-2 ${
+                                errors.producerId 
+                                ? 'border-red-500 focus:ring-red-500' 
+                                : 'border-slate-300 focus:ring-emerald-500'
+                            } ${editingClient ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
                             placeholder="000000000"
                         />
-                        {!editingClient && <p className="text-xs text-slate-400 mt-1">To będzie unikalny identyfikator w systemie.</p>}
+                        {errors.producerId ? (
+                            <p className="text-xs text-red-500 mt-1 font-medium">{errors.producerId}</p>
+                        ) : (
+                            !editingClient && <p className="text-xs text-slate-400 mt-1">To będzie unikalny identyfikator w systemie.</p>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -272,7 +296,6 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                                 value={formData.totalArea}
                                 onChange={(e) => {
                                     const val = parseFloat(e.target.value);
-                                    // Store NaN if empty to allow typing, but handle on submit
                                     setFormData({...formData, totalArea: isNaN(val) ? 0 : val});
                                 }}
                                 className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"

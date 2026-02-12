@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { ArrowUpRight, Calendar, FileText, Sun, FileSpreadsheet, Map, File, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Search } from 'lucide-react';
+import { ArrowUpRight, Calendar, FileText, Sun, FileSpreadsheet, Map, File, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Search, Leaf, AlertOctagon, AlertCircle } from 'lucide-react';
 import { FarmData, FarmerDocument, Field } from '../types';
+import { analyzeFarmState } from '../services/farmLogic';
 
 interface DashboardProps {
   farmData: FarmData;
@@ -12,35 +13,60 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields }) => {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const availableYears = [2026, 2025, 2024, 2023];
+  const availableYears = [2026, 2025, 2024, 2023, 2022, 2021];
 
   // 1. Logic to get crop for a specific year
   const getCropForYear = (field: Field, year: number): string => {
     if (year === 2026) {
         return field.crop || 'Nieznana';
     }
-    // Fix: Add ?. to history access
     const historyEntry = field.history?.find(h => h.year === year);
+    // If we have crop parts, show "Mieszana" or the first one
+    if (historyEntry?.cropParts && historyEntry.cropParts.length > 0) {
+        return historyEntry.cropParts.length > 1 ? 'Wielu upraw' : historyEntry.cropParts[0].crop;
+    }
     return historyEntry ? historyEntry.crop : 'Brak danych';
   };
 
-  // 2. Calculate Stats based on Selected Year
-  const { totalArea, cropSummary, applicationDoc } = useMemo(() => {
+  // 2. Calculate Stats & Analyze Logic
+  const { totalArea, cropSummary, applicationDoc, analysisReport } = useMemo(() => {
     let areaSum = 0;
     const summary: Record<string, number> = {};
 
+    // Basic Stats Calculation
     farmData.fields.forEach(field => {
-        areaSum += field.area;
+        const hist = field.history?.find(h => h.year === selectedYear);
+        
+        // Check if this is a "Part" from crop structure (has designation). If so, we might skip it for total area if it's already counted in the main parcel
+        // HOWEVER, for dashboard stats, we usually want unique parcels.
+        // Assuming farmData.fields contains distinct parcels now (after import merge fix).
+        
+        // Use Eligible Area (PEG) as primary dimension if available, otherwise Geodetic Area
+        let area = hist?.eligibleArea || hist?.area;
+        
+        if (area === undefined) {
+            if (selectedYear === 2026) area = field.eligibleArea || field.area;
+            else if (hist) area = field.eligibleArea || field.area;
+            else area = 0;
+        }
+        
+        // Only sum up if it's a root parcel (no designation) to avoid double counting if structure is mixed
+        if (!hist || (!hist.designation && !hist.designationZal)) {
+             areaSum += area;
+        }
+
         const crop = getCropForYear(field, selectedYear);
-        
-        // Skip undefined or 'Nieznana' crops from summary stats
-        if (crop === 'Nieznana' || crop === 'Brak danych') return;
-        
-        if (!summary[crop]) summary[crop] = 0;
-        summary[crop] += field.area;
+        if (crop !== 'Nieznana' && crop !== 'Brak danych') {
+            if (!summary[crop]) summary[crop] = 0;
+            // For crop summary, we use the area of this specific entry
+            summary[crop] += area;
+        }
     });
 
-    // Find PDF Application for the selected year - use optional chaining for safety
+    // Run Business Logic Analysis
+    const report = analyzeFarmState(farmData, selectedYear);
+
+    // Find PDF
     const appDoc = recentDocuments?.find(d => 
         (d.category === 'WNIOSEK' || d.type === 'PDF') && 
         d.campaignYear === selectedYear.toString()
@@ -49,19 +75,29 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
     return { 
         totalArea: areaSum, 
         cropSummary: summary,
-        applicationDoc: appDoc
+        applicationDoc: appDoc,
+        analysisReport: report
     };
   }, [farmData, selectedYear, recentDocuments]);
 
   const sortedCrops = (Object.entries(cropSummary) as [string, number][]).sort((a, b) => b[1] - a[1]);
 
-  // Mocked generic deadlines based on year
   const getDeadlineInfo = (year: number) => {
       if (year === 2026) return { date: '15 Maja', desc: 'Termin składania wniosków podstawowych' };
       if (year === 2025) return { date: 'Zakończono', desc: 'Kampania zamknięta' };
       return { date: 'Archiwum', desc: 'Dane historyczne' };
   };
   const deadline = getDeadlineInfo(selectedYear);
+
+  // Filter fields for "Okno Działek" - Only show purely Registry Parcels (no crop designations)
+  const registryParcels = farmData.fields.filter(field => {
+      const hist = field.history?.find(h => h.year === selectedYear);
+      // Exclude if it has a designation (it's a crop part)
+      if (hist && (hist.designation || hist.designationZal)) return false;
+      // Exclude if no history exists for this year (unless it's the planning year)
+      if (!hist && selectedYear !== 2026) return false;
+      return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -95,27 +131,77 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
         </div>
       </div>
 
-      {/* ROW 1: KEY METRICS (Area, Money, Deadline, PDF Application) */}
+      {/* SECTION: Carbon Farming Status (Rolnictwo Węglowe) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-emerald-50/50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <Leaf className="text-emerald-600" size={20} />
+                  Status Rolnictwa Węglowego
+              </h3>
+              {analysisReport.isEntryConditionMet ? (
+                  <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full flex items-center gap-1">
+                      <CheckCircle size={14} /> Warunek Spełniony
+                  </span>
+              ) : (
+                  <span className="text-xs font-bold bg-amber-100 text-amber-700 px-3 py-1 rounded-full flex items-center gap-1">
+                      <AlertTriangle size={14} /> Poniżej progu
+                  </span>
+              )}
+          </div>
+          <div className="p-6">
+              <div className="flex flex-col md:flex-row justify-between mb-2 text-sm">
+                  <span className="text-slate-500">Zgromadzone punkty: <span className="font-bold text-slate-800 text-lg">{analysisReport.totalPoints.toFixed(1)} pkt</span></span>
+                  <span className="text-slate-500">Wymagane minimum (25% UR): <span className="font-bold text-slate-800">{analysisReport.requiredPoints.toFixed(1)} pkt</span></span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-4 overflow-hidden mb-2">
+                  <div 
+                      className={`h-full rounded-full transition-all duration-500 ${analysisReport.isEntryConditionMet ? 'bg-gradient-to-r from-emerald-500 to-green-400' : 'bg-amber-400'}`}
+                      style={{ width: `${Math.min((analysisReport.totalPoints / (analysisReport.requiredPoints || 1)) * 100, 100)}%` }}
+                  ></div>
+              </div>
+              <p className="text-xs text-slate-400">
+                  Przelicznik: 1 pkt ≈ 100 PLN. Szacowana wartość ekoschematów: <span className="font-bold text-emerald-600">{analysisReport.totalEstimatedValue.toLocaleString('pl-PL', {style:'currency', currency:'PLN'})}</span>
+              </p>
+          </div>
+      </div>
+
+      {/* SECTION: Validation Issues */}
+      {analysisReport.validationIssues.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <h3 className="font-bold text-red-800 flex items-center gap-2 mb-3">
+                  <AlertOctagon size={20} />
+                  Walidacja Wniosku - Wykryte Błędy
+              </h3>
+              <div className="space-y-2">
+                  {analysisReport.validationIssues.map((issue, idx) => (
+                      <div key={idx} className="bg-white p-3 rounded-lg border border-red-100 shadow-sm flex gap-3 items-start">
+                          {issue.type === 'ERROR' ? <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={18}/> : <AlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={18}/>}
+                          <div>
+                              <div className="font-semibold text-slate-800 text-sm">{issue.fieldName}</div>
+                              <p className="text-sm text-slate-600">{issue.message}</p>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* ROW 1: KEY METRICS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* 1. Area */}
         <StatCard 
-          title="Powierzchnia UR" 
+          title="Powierzchnia UR (PEG)" 
           value={`${totalArea.toFixed(2)} ha`} 
-          subtext={`Suma geometryczna (${selectedYear})`}
+          subtext={`Suma kwalifikowana (${selectedYear})`}
           icon={Map}
           color="blue"
         />
-        
-        {/* 2. Subsidies (Estimated) */}
         <StatCard 
           title="Szacowane Dopłaty" 
-          value={selectedYear === 2026 ? "~ 14 500 PLN" : "Zrealizowano"} 
-          subtext={selectedYear === 2026 ? "Wymagana optymalizacja" : "Płatność zakończona"}
+          value={`~ ${(analysisReport.totalEstimatedValue + (totalArea * 500)).toLocaleString('pl-PL')} PLN`} 
+          subtext="Podstawa + Ekoschematy"
           icon={ArrowUpRight}
           color="emerald"
         />
-        
-        {/* 3. Deadlines */}
         <StatCard 
           title="Najbliższy Termin" 
           value={deadline.date} 
@@ -124,7 +210,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
           color="amber"
         />
         
-        {/* 4. Payment Application PDF */}
+        {/* PDF Application Card */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden">
              <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-4 -mt-4 z-0"></div>
              <div className="relative z-10">
@@ -132,7 +218,6 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     <span className="text-slate-500 text-sm font-medium">Wniosek o Płatność</span>
                     <FileText size={20} className="text-red-500" />
                 </div>
-                
                 {applicationDoc ? (
                     <div>
                         <div className="text-lg font-bold text-slate-800 truncate mb-1" title={applicationDoc.name}>
@@ -157,7 +242,6 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     </div>
                 )}
              </div>
-             
              {applicationDoc && (
                  <button className="mt-4 w-full flex items-center justify-center gap-2 text-sm text-red-600 font-medium hover:bg-red-50 py-1.5 rounded transition-colors">
                     <Download size={14} /> Pobierz
@@ -168,8 +252,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
 
       {/* ROW 2: MAIN WINDOWS (Parcels & Crops) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* WINDOW 1: PARCELS (Działki) */}
+          {/* WINDOW 1: PARCELS (FILTERED TO SHOW ONLY REGISTRY) */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
@@ -185,45 +268,32 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
             </div>
             
             <div className="flex-1 overflow-auto pr-1">
-                {farmData.fields.length > 0 ? (
+                {registryParcels.length > 0 ? (
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0 z-10">
                             <tr>
                                 <th className="p-2 font-semibold bg-slate-50">Nr/Nazwa</th>
-                                <th className="p-2 font-semibold bg-slate-50">Pow.</th>
-                                <th className="p-2 font-semibold bg-slate-50">Uprawa w {selectedYear}</th>
+                                <th className="p-2 font-semibold bg-slate-50">Pow. PEG</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {farmData.fields.map(field => (
+                            {registryParcels.map(field => {
+                                const hist = field.history?.find(h => h.year === selectedYear);
+                                // Display PEG (Eligible) if available
+                                let area = hist?.eligibleArea || hist?.area || (selectedYear === 2026 ? (field.eligibleArea || field.area) : 0);
+                                
+                                return (
                                 <tr key={field.id} className="hover:bg-slate-50">
                                     <td className="p-2 font-medium text-slate-700">
                                         <div className="truncate max-w-[120px]" title={field.name}>{field.name}</div>
                                         <span className="block text-xs text-slate-400 font-mono">{field.registrationNumber}</span>
                                     </td>
                                     <td className="p-2 text-slate-600">
-                                        <div>{field.area.toFixed(2)}</div>
-                                        {field.eligibleArea < field.area && (
-                                            <div className="text-xs text-amber-600" title="Powierzchnia kwalifikowana">
-                                                (kwal. {field.eligibleArea.toFixed(2)})
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="p-2">
-                                        {(() => {
-                                            const crop = getCropForYear(field, selectedYear);
-                                            if (crop === 'Nieznana' || crop === 'Brak danych') {
-                                                return <span className="text-slate-300">-</span>;
-                                            }
-                                            return (
-                                                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-100">
-                                                    {crop}
-                                                </span>
-                                            );
-                                        })()}
+                                        <div>{area.toFixed(2)}</div>
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 ) : (
@@ -235,12 +305,12 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
             </div>
           </div>
 
-          {/* WINDOW 2: CROPS (Zasiewy) */}
+          {/* WINDOW 2: CROPS */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
                     <Sprout className="text-emerald-600" size={20}/>
-                    <h3 className="font-bold text-slate-800">Okno Zasiewów ({selectedYear})</h3>
+                    <h3 className="font-bold text-slate-800">Struktura Zasiewów</h3>
                 </div>
                 <button 
                     onClick={() => onManageFields('CROPS')}
@@ -254,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                  {sortedCrops.length > 0 ? (
                      <div className="space-y-4">
                         {sortedCrops.map(([crop, area]) => {
-                            const percentage = ((area / totalArea) * 100).toFixed(1);
+                            const percentage = totalArea > 0 ? ((area / totalArea) * 100).toFixed(1) : "0.0";
                             return (
                                 <div key={crop} className="relative">
                                     <div className="flex items-center justify-between mb-1">
@@ -290,31 +360,6 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
             </div>
           </div>
       </div>
-
-      {/* ROW 3: ARiMR NEWS (Independent of year) */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-                <div className="bg-red-600 text-white p-1 rounded">
-                     <span className="font-bold text-xs tracking-wider">ARiMR</span>
-                </div>
-                <h3 className="font-bold text-slate-800">Komunikaty i Wiadomości</h3>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
-                    { date: '12.09', title: 'Zmiana stawek płatności on-line', desc: 'Nowe rozporządzenie w sprawie stawek dla ekoschematu "Rolnictwo węglowe".' },
-                    { date: '05.09', title: 'Rejestracja zwierząt w IRZplus', desc: 'Przypomnienie o terminach zgłaszania urodzeń i przemieszczeń bydła.' },
-                    { date: '01.09', title: 'Nabór "Rolnictwo 4.0"', desc: 'Przedłużono termin składania wniosków na zakup sprzętu precyzyjnego.' }
-                ].map((news, i) => (
-                    <div key={i} className="group cursor-pointer">
-                        <span className="text-xs font-bold text-slate-400 mb-1 block">{news.date}</span>
-                        <h4 className="font-semibold text-slate-800 group-hover:text-emerald-600 transition-colors mb-1">{news.title}</h4>
-                        <p className="text-sm text-slate-500 line-clamp-2">{news.desc}</p>
-                    </div>
-                ))}
-            </div>
-      </div>
-
     </div>
   );
 };

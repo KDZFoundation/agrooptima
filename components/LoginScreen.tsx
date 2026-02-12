@@ -5,7 +5,7 @@ import { UserRole } from '../types';
 import { api } from '../services/api';
 
 interface LoginScreenProps {
-  onLogin: (role: UserRole) => void;
+  onLogin: (role: UserRole, id: string) => void;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
@@ -28,7 +28,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     // Simulate API delay
     setTimeout(() => {
       setLoading(false);
-      onLogin(role);
+      onLogin(role, email);
     }, 1000);
   };
 
@@ -83,7 +83,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl">
               <button
                 type="button"
-                onClick={() => setRole('ADVISOR')}
+                onClick={() => { setRole('ADVISOR'); setEmail('user@agrooptima.pl'); }}
                 className={`flex items-center justify-center space-x-2 py-3 rounded-lg font-semibold transition-all ${
                     role === 'ADVISOR' 
                     ? 'bg-white text-emerald-700 shadow-sm' 
@@ -95,7 +95,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               </button>
               <button
                 type="button"
-                onClick={() => setRole('FARMER')}
+                onClick={() => { setRole('FARMER'); setEmail('050237165'); }}
                 className={`flex items-center justify-center space-x-2 py-3 rounded-lg font-semibold transition-all ${
                     role === 'FARMER' 
                     ? 'bg-white text-emerald-700 shadow-sm' 

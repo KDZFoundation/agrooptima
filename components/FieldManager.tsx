@@ -1,27 +1,39 @@
 
+// ... (imports remain the same)
 import React, { useRef, useState, useEffect } from 'react';
-import { Layers, Sprout, Calendar, X, AlertCircle, UploadCloud, FileCheck, AlertTriangle } from 'lucide-react';
-import { Field, CropType, CsvTemplate, FieldHistoryEntry, CsvTemplateType } from '../types';
+import { Layers, Sprout, Calendar, X, AlertCircle, UploadCloud, FileCheck, AlertTriangle, Save, Loader2, Check } from 'lucide-react';
+import { Field, CropType, CsvTemplate, FieldHistoryEntry, CsvTemplateType, FieldCropPart } from '../types';
 import { CROP_TYPES } from '../constants';
 import ParcelManager from './ParcelManager';
 import CropManager from './CropManager';
+import { analyzeFarmState } from '../services/farmLogic';
 
 interface FieldManagerProps {
   fields: Field[];
   setFields: React.Dispatch<React.SetStateAction<Field[]>>;
   csvTemplates: CsvTemplate[];
   initialTab?: 'PARCELS' | 'CROPS';
+  onSave?: () => Promise<boolean>;
 }
 
-const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTemplates, initialTab = 'PARCELS' }) => {
+const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTemplates, initialTab = 'PARCELS', onSave }) => {
   const [activeTab, setActiveTab] = useState<'PARCELS' | 'CROPS'>(initialTab);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'IDLE' | 'SUCCESS' | 'ERROR'>('IDLE');
   
   // Update tab if initialTab prop changes
   useEffect(() => {
       setActiveTab(initialTab);
   }, [initialTab]);
   
+  useEffect(() => {
+      if (saveStatus !== 'IDLE') {
+          const timer = setTimeout(() => setSaveStatus('IDLE'), 3000);
+          return () => clearTimeout(timer);
+      }
+  }, [saveStatus]);
+
   // Import State
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -87,6 +99,62 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
     return res;
   };
 
+  const handleManualSave = async () => {
+      if (!onSave) return;
+      setIsSaving(true);
+      const success = await onSave();
+      setIsSaving(false);
+      setSaveStatus(success ? 'SUCCESS' : 'ERROR');
+  };
+
+  // --- MANUAL COPY FUNCTIONALITY ---
+  const handleCopyFromYear = (sourceYear: number, type: 'PARCELS' | 'CROPS') => {
+      if (!window.confirm(`Czy na pewno chcesz skopiować stan ${type === 'PARCELS' ? 'działek' : 'zasiewów'} z roku ${sourceYear} do roku ${selectedYear}? Istniejące wpisy w roku ${selectedYear} mogą zostać nadpisane.`)) {
+          return;
+      }
+
+      setFields(prevFields => {
+          return prevFields.map(field => {
+              const sourceHist = field.history.find(h => h.year === sourceYear);
+              
+              // If source year has no data, skip
+              if (!sourceHist) return field;
+
+              const existingHistIndex = field.history.findIndex(h => h.year === selectedYear);
+              let newHist: FieldHistoryEntry;
+
+              if (type === 'PARCELS') {
+                  // Copy ONLY Geometry/Area info. Reset Crop to 'Nieznana' for new campaign.
+                  newHist = {
+                      year: selectedYear,
+                      area: sourceHist.area || field.area,
+                      eligibleArea: sourceHist.eligibleArea || field.eligibleArea,
+                      crop: 'Nieznana', 
+                      appliedEcoSchemes: [],
+                      cropParts: [] // Reset crop parts
+                  };
+              } else {
+                  // Copy Full Structure (Crops, EcoSchemes)
+                  newHist = {
+                      ...sourceHist,
+                      year: selectedYear // Overwrite year
+                  };
+              }
+
+              let updatedHistory = [...field.history];
+              if (existingHistIndex >= 0) {
+                  // Merge/Overwrite existing
+                  updatedHistory[existingHistIndex] = { ...updatedHistory[existingHistIndex], ...newHist };
+              } else {
+                  updatedHistory.push(newHist);
+              }
+              updatedHistory.sort((a, b) => b.year - a.year);
+
+              return { ...field, history: updatedHistory };
+          });
+      });
+  };
+
   // --- CSV IMPORTS ---
   const handleDownloadTemplate = (type: CsvTemplateType) => {
       // Find the active template or use default headers
@@ -104,7 +172,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
               headers = "Identyfikator działki;Województwo;Powiat;Gmina;Obręb;Nr działki;Powierzchnia Ha\n";
               filename = 'szablon_ewidencja_gruntow.csv';
           } else {
-              headers = "Nr działki;Uprawa;Ekoschematy\n";
+              headers = "Identyfikator działki;Nr działki;Uprawa;Ekoschematy\n";
               filename = 'szablon_struktura_zasiewow.csv';
           }
       }
@@ -133,6 +201,18 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // --- AUTO-DETECT CONTEXT FROM FILENAME ---
+    // Extract Year
+    const yearMatch = file.name.match(/202[0-9]/);
+    if (yearMatch) {
+        const detectedYear = parseInt(yearMatch[0]);
+        console.log("Detected Year from filename:", detectedYear);
+        const matchingTemplate = csvTemplates.find(t => t.year === detectedYear && t.type === importType);
+        if (matchingTemplate) {
+            setSelectedTemplateId(matchingTemplate.id);
+        }
+    }
+
     const selectedTemplate = csvTemplates.find(t => t.id === selectedTemplateId);
     if (!selectedTemplate) {
         alert("Wybierz szablon importu.");
@@ -146,12 +226,10 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
         if (!text) { alert("Plik jest pusty."); return; }
 
         try {
-            // Remove BOM if present
             if (text.charCodeAt(0) === 0xFEFF) {
                 text = text.slice(1);
             }
 
-            // AUTO-DETECT SEPARATOR
             const firstLine = text.split('\n')[0];
             let separator = selectedTemplate.separator;
             if (firstLine) {
@@ -171,18 +249,12 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             const fileHeaders = splitCSV(lines[0], separator).map(h => h.trim());
             
             // --- MAPPING STRATEGY ---
-            // We need to map System Keys -> Column Index in CSV
             const columnMap: Record<string, number> = {};
             const missingRequiredHeaders: string[] = [];
-
-            // Helper to clean header strings for comparison: lowercase, remove quotes, NORMALIZE SPACES
             const cleanHeader = (h: string) => h.toLowerCase().replace(/['"]/g, '').replace(/\s+/g, ' ').trim();
 
             Object.entries(selectedTemplate.mappings).forEach(([systemKey, templateHeaderName]) => {
                 const searchName = cleanHeader(String(templateHeaderName));
-                
-                // Find index where header matches (exact or contains)
-                // Using cleanHeader on both sides ensures "Oznaczenie Uprawy  / działki" matches "oznaczenie uprawy / działki"
                 const index = fileHeaders.findIndex(h => {
                     const cleanedH = cleanHeader(h);
                     return cleanedH === searchName || cleanedH.includes(searchName);
@@ -191,7 +263,6 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                 if (index !== -1) {
                     columnMap[systemKey] = index;
                 } else {
-                    // Check strict requirements
                     if (importType === 'PARCELS' && (systemKey === 'name' || systemKey === 'area')) missingRequiredHeaders.push(String(templateHeaderName));
                     if (importType === 'CROPS' && (systemKey === 'registrationNumber' || systemKey === 'crop')) missingRequiredHeaders.push(String(templateHeaderName));
                 }
@@ -205,7 +276,6 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             // --- PROCESSING ---
             const report = { success: 0, skipped: 0, errors: [] as string[] };
             
-            // Helper to get value from row based on system key
             const getVal = (rowCols: string[], key: string): string => {
                 const idx = columnMap[key];
                 if (idx !== undefined && rowCols[idx] !== undefined) return rowCols[idx];
@@ -213,79 +283,94 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             };
 
             const processedFields: Field[] = [];
-            // Updated to store optional area for creation
-            const processedHistories: { regNum: string, entry: FieldHistoryEntry, area: number }[] = [];
+            // Updated Structure for Crop Processing to include Name (TERYT)
+            const processedHistories: { name: string, regNum: string, entry: FieldHistoryEntry, area: number, designation: string }[] = [];
 
             // Iterate Data Rows
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
                 const cols = splitCSV(line, separator);
                 
-                // Skip empty lines
                 if (cols.length < 2) continue;
 
-                // ---------------------------
-                // MODE: PARCELS (Ewidencja)
-                // ---------------------------
                 if (importType === 'PARCELS') {
                     const name = getVal(cols, 'name');
                     const reg = getVal(cols, 'registrationNumber');
                     const areaStr = getVal(cols, 'area');
                     
-                    if (!areaStr || parsePolishNumber(areaStr) <= 0) {
+                    if (!name && !reg) {
                         report.skipped++;
                         continue;
                     }
 
                     const finalName = name || (reg ? `Działka ${reg}` : `Działka ${i}`);
-                    const finalReg = reg || `T_${i}`; // Temporary ID if missing reg
+                    const finalReg = reg || `T_${i}`;
 
-                    processedFields.push({
-                        id: Math.random().toString(36).substr(2, 9),
-                        name: finalName,
-                        registrationNumber: finalReg,
-                        area: parsePolishNumber(areaStr),
-                        eligibleArea: parsePolishNumber(getVal(cols, 'eligibleArea')) || parsePolishNumber(areaStr),
-                        crop: 'Nieznana', // Parcels import does NOT set crop
-                        history: [], // History initialized empty, filled during merge
-                        // Location data
-                        voivodeship: getVal(cols, 'voivodeship'),
-                        district: getVal(cols, 'district'),
-                        commune: getVal(cols, 'commune'),
-                        precinctName: getVal(cols, 'precinctName'),
-                        precinctNumber: getVal(cols, 'precinctNumber'),
-                        mapSheet: getVal(cols, 'mapSheet'),
-                    });
+                    // IMPORTANT: We grab exact dimensions for this year
+                    const exactArea = parsePolishNumber(areaStr);
+                    const exactEligible = parsePolishNumber(getVal(cols, 'eligibleArea')) || exactArea;
+
+                    // CHECK FOR DUPLICATES WITHIN THE SAME FILE AND AGGREGATE
+                    // Many CSV exports list land classes as separate rows for the same Parcel ID.
+                    // We must sum them up to get the total Parcel Area.
+                    const existingInBatchIndex = processedFields.findIndex(f => 
+                        (f.name && f.name === finalName) || 
+                        (!f.name && f.registrationNumber === finalReg) // Strict matching logic
+                    );
+
+                    if (existingInBatchIndex >= 0) {
+                        // Aggregate Area
+                        processedFields[existingInBatchIndex].area += exactArea;
+                        processedFields[existingInBatchIndex].eligibleArea += exactEligible;
+                        
+                        // Keep other metadata from first occurrence (usually identical)
+                    } else {
+                        processedFields.push({
+                            id: Math.random().toString(36).substr(2, 9),
+                            name: finalName,
+                            registrationNumber: finalReg,
+                            area: exactArea,
+                            eligibleArea: exactEligible,
+                            crop: 'Nieznana', 
+                            history: [], 
+                            voivodeship: getVal(cols, 'voivodeship'),
+                            district: getVal(cols, 'district'),
+                            commune: getVal(cols, 'commune'),
+                            precinctName: getVal(cols, 'precinctName'),
+                            precinctNumber: getVal(cols, 'precinctNumber'),
+                            mapSheet: getVal(cols, 'mapSheet'),
+                        });
+                    }
                 } 
                 
-                // ---------------------------
-                // MODE: CROPS (Struktura)
-                // ---------------------------
                 else if (importType === 'CROPS') {
                     const reg = getVal(cols, 'registrationNumber');
+                    const name = getVal(cols, 'name'); // Try to get full identifier if mapped
                     const cropRaw = getVal(cols, 'crop');
                     
-                    // Allow import if at least reg number is present, even if crop is empty (treat as Nieznana)
                     if (!reg) {
                         report.skipped++;
                         continue;
                     }
 
-                    // Strict matching requires Registration Number
                     const normalizedCrop = normalizeCropName(cropRaw);
                     const ecoSchemesStr = getVal(cols, 'ecoSchemes');
                     
-                    // Attempt to get area from 'area' or 'specificArea' (common in ARiMR exports)
+                    // FIX: Prioritize 'specificArea' over general 'area'
                     const areaStr = getVal(cols, 'area'); 
                     const specificAreaStr = getVal(cols, 'specificArea');
-                    const finalArea = parsePolishNumber(areaStr) || parsePolishNumber(specificAreaStr);
+                    const valSpecific = parsePolishNumber(specificAreaStr);
+                    const valGeneric = parsePolishNumber(areaStr);
+                    
+                    const finalArea = valSpecific > 0 ? valSpecific : valGeneric;
+                    const designation = getVal(cols, 'designation');
 
                     const historyEntry: FieldHistoryEntry = {
                         year: selectedTemplate.year || selectedYear,
                         crop: normalizedCrop as CropType,
                         appliedEcoSchemes: ecoSchemesStr ? ecoSchemesStr.split(',').map(s=>s.trim()).filter(s=>s) : [],
-                        // Extended data
-                        designation: getVal(cols, 'designation'),
+                        area: finalArea,
+                        designation: designation,
                         designationZal: getVal(cols, 'designationZal'),
                         paymentList: getVal(cols, 'paymentList'),
                         isUnreported: getVal(cols, 'isUnreported'),
@@ -294,8 +379,6 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                         organic: getVal(cols, 'organic'),
                         onwType: getVal(cols, 'onwType'),
                         onwArea: parsePolishNumber(getVal(cols, 'onwArea')),
-                        
-                        // PRSK
                         prskPackage: getVal(cols, 'prskPackage'),
                         prskPractice: getVal(cols, 'prskPractice'),
                         prskFruitTreeVariety: getVal(cols, 'prskFruitTreeVariety'),
@@ -303,25 +386,22 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                         prskIntercropPlant: getVal(cols, 'prskIntercropPlant'),
                         prskUsage: getVal(cols, 'prskUsage'),
                         prskVariety: getVal(cols, 'prskVariety'),
-
-                        // ZRSK
                         zrskPackage: getVal(cols, 'zrskPackage'),
                         zrskPractice: getVal(cols, 'zrskPractice'),
                         zrskFruitTreeVariety: getVal(cols, 'zrskFruitTreeVariety'),
                         zrskFruitTreeCount: parsePolishNumber(getVal(cols, 'zrskFruitTreeCount')),
                         zrskUsage: getVal(cols, 'zrskUsage'),
                         zrskVariety: getVal(cols, 'zrskVariety'),
-
-                        // RE
                         rePackage: getVal(cols, 'rePackage'),
-                        
                         notes: getVal(cols, 'notes'),
                     };
 
                     processedHistories.push({ 
+                        name: name,
                         regNum: reg, 
                         entry: historyEntry,
-                        area: finalArea
+                        area: finalArea,
+                        designation: designation
                     });
                 }
             }
@@ -329,39 +409,51 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             // --- APPLY CHANGES ---
             setFields(prevFields => {
                 let newFields = [...prevFields];
+                const importYear = selectedTemplate.year || selectedYear;
+                const touchedFieldIds = new Set<string>(); // Tracks fields modified in this batch
 
                 if (importType === 'PARCELS') {
-                    // PARCELS Strategy: Update existing by RegNum, or Add New.
-                    // This logic remains tied to strict Registration Number matching.
-                    // IMPORTANT: We also ensure the field has a history entry for the import year to mark it as active.
-                    const importYear = selectedTemplate.year || selectedYear;
-
                     processedFields.forEach(newItem => {
-                        const existingIdx = newFields.findIndex(f => 
-                            f.registrationNumber && newItem.registrationNumber &&
-                            f.registrationNumber.replace(/\s/g,'').toLowerCase() === newItem.registrationNumber.replace(/\s/g,'').toLowerCase()
-                        );
+                        // STRICT MATCHING: Prefer matching by Name (TERYT) first, then RegNum
+                        const existingIdx = newFields.findIndex(f => {
+                            if (f.name && newItem.name && f.name === newItem.name) return true;
+                            // Fallback to RegNum matching if Name is not consistent or missing
+                            return f.registrationNumber && newItem.registrationNumber &&
+                                   f.registrationNumber.replace(/\s/g,'').toLowerCase() === newItem.registrationNumber.replace(/\s/g,'').toLowerCase();
+                        });
+
+                        const newHistoryEntry: FieldHistoryEntry = {
+                            year: importYear,
+                            crop: 'Nieznana',
+                            appliedEcoSchemes: [],
+                            area: newItem.area,
+                            eligibleArea: newItem.eligibleArea
+                        };
 
                         if (existingIdx >= 0) {
-                            // Update structure, KEEP history
                             const field = newFields[existingIdx];
                             const updatedHistory = [...field.history];
+                            const existingHistIndex = updatedHistory.findIndex(h => h.year === importYear);
                             
-                            // Ensure history entry for importYear exists so it shows up in filtered view
-                            if (!updatedHistory.find(h => h.year === importYear)) {
-                                updatedHistory.push({
-                                    year: importYear,
-                                    crop: 'Nieznana',
-                                    appliedEcoSchemes: []
-                                });
-                                updatedHistory.sort((a, b) => b.year - a.year);
+                            if (existingHistIndex >= 0) {
+                                updatedHistory[existingHistIndex] = {
+                                    ...updatedHistory[existingHistIndex],
+                                    area: newItem.area, // Update with aggregated area
+                                    eligibleArea: newItem.eligibleArea // Update with aggregated area
+                                };
+                            } else {
+                                updatedHistory.push(newHistoryEntry);
                             }
+                            updatedHistory.sort((a, b) => b.year - a.year);
+
+                            const maxYearInHistory = updatedHistory.length > 0 ? updatedHistory[0].year : 0;
+                            const isNewestData = importYear >= maxYearInHistory;
 
                             newFields[existingIdx] = {
                                 ...newFields[existingIdx],
-                                name: newItem.name,
-                                area: newItem.area,
-                                eligibleArea: newItem.eligibleArea,
+                                name: isNewestData ? newItem.name : newFields[existingIdx].name,
+                                area: isNewestData ? newItem.area : newFields[existingIdx].area,
+                                eligibleArea: isNewestData ? newItem.eligibleArea : newFields[existingIdx].eligibleArea,
                                 voivodeship: newItem.voivodeship,
                                 district: newItem.district,
                                 commune: newItem.commune,
@@ -372,83 +464,162 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                             };
                             report.success++;
                         } else {
-                            // Add new
-                            // Initialize with history entry for this year
-                            newItem.history = [{
-                                year: importYear,
-                                crop: 'Nieznana',
-                                appliedEcoSchemes: []
-                            }];
+                            newItem.history = [newHistoryEntry];
                             newFields.push(newItem);
                             report.success++;
                         }
                     });
                 } else {
-                    // CROPS Strategy: DECOUPLED FROM REGISTRY
-                    // We treat the import as authoritative for agricultural parcels (Działki Rolne).
-                    // We match based on Registration Number AND Designation to support multiple crops (A, B, C) on one physical parcel.
-                    
-                    processedHistories.forEach(({ regNum, entry, area }) => {
-                        // Determine a unique identifier for this crop/parcel combination
-                        // If designation exists (A, B, C), we use it to distinguish.
-                        const designation = entry.designation || entry.designationZal || '';
-                        
-                        // We construct a specific name suffix to look for, e.g., " - A"
-                        // This allows us to map to existing "Split" fields if we already imported them.
-                        const nameSuffix = designation ? ` - ${designation}` : '';
-
-                        const existingIdx = newFields.findIndex(f => 
-                            f.registrationNumber && regNum &&
-                            f.registrationNumber.replace(/\s/g,'').toLowerCase() === regNum.replace(/\s/g,'').toLowerCase() &&
-                            // CRITICAL: If designation exists, we ONLY match fields that have it in name (created by previous import)
-                            // If designation is empty, we match fields without extra suffix OR we just create new to be safe?
-                            // We'll try to match exact logic to prevent duplicates on re-import.
-                            (designation ? f.name.endsWith(nameSuffix) : !f.name.includes(' - '))
-                        );
+                    // STRATEGY: CROPS (Split Parcels)
+                    processedHistories.forEach(({ name, regNum, entry, area, designation }) => {
+                        // STRICT MATCHING for Crops:
+                        const existingIdx = newFields.findIndex(f => {
+                            // 1. Precise Match by Name (TERYT) if available
+                            if (name && f.name && f.name === name) return true;
+                            
+                            // 2. Fallback to RegNum ONLY IF:
+                            //    a) Incoming doesn't have a name (legacy data)
+                            //    b) OR Existing field name is generic (not a TERYT) or matches RegNum
+                            //    c) AND RegNums match
+                            if (f.registrationNumber && regNum &&
+                                f.registrationNumber.replace(/\s/g,'').toLowerCase() === regNum.replace(/\s/g,'').toLowerCase()) {
+                                
+                                // SAFETY CHECK: If existing field has a distinct TERYT (long ID with dots/underscores)
+                                // and incoming name is DIFFERENT (and present), DO NOT MATCH.
+                                const existingIsTeryt = f.name.includes('.') || f.name.includes('_');
+                                const incomingIsTeryt = name && (name.includes('.') || name.includes('_'));
+                                
+                                if (existingIsTeryt && incomingIsTeryt && f.name !== name) {
+                                    return false; // Different TERYTs, same RegNum (different precincts). Don't merge.
+                                }
+                                return true;
+                            }
+                            return false;
+                        });
 
                         if (existingIdx >= 0) {
-                            // Update existing Agricultural Parcel
                             const field = newFields[existingIdx];
                             const updatedHistory = [...field.history];
-                            
                             const histIdx = updatedHistory.findIndex(h => h.year === entry.year);
+
+                            const partToAdd: FieldCropPart = {
+                                designation: designation || 'A',
+                                crop: entry.crop,
+                                area: area,
+                                ecoSchemes: entry.appliedEcoSchemes,
+                                designationZal: entry.designationZal,
+                                paymentList: entry.paymentList,
+                                plantMix: entry.plantMix
+                            };
+
                             if (histIdx >= 0) {
-                                updatedHistory[histIdx] = entry; // Overwrite
+                                const existingEntry = updatedHistory[histIdx];
+                                
+                                // CRITICAL FIX: Clear old crop parts if this field is being touched for the first time in this batch
+                                // This prevents duplicate accumulation if user re-imports the same file or updates data.
+                                let updatedParts = existingEntry.cropParts ? [...existingEntry.cropParts] : [];
+                                
+                                if (!touchedFieldIds.has(field.id)) {
+                                    // Reset parts for this year as we are starting a fresh update for this field in this batch
+                                    updatedParts = []; 
+                                    touchedFieldIds.add(field.id);
+                                }
+
+                                const existingPartIdx = updatedParts.findIndex(p => p.designation === designation);
+                                
+                                if (existingPartIdx >= 0) {
+                                    // MERGE LOGIC (within the same batch): If a part with this designation already exists, sum area and merge eco-schemes
+                                    const existingPart = updatedParts[existingPartIdx];
+                                    updatedParts[existingPartIdx] = {
+                                        ...existingPart,
+                                        area: existingPart.area + partToAdd.area, // Sum Area
+                                        ecoSchemes: Array.from(new Set([...existingPart.ecoSchemes, ...partToAdd.ecoSchemes])), // Merge EcoSchemes
+                                        paymentList: partToAdd.paymentList || existingPart.paymentList
+                                    };
+                                } else {
+                                    updatedParts.push(partToAdd);
+                                }
+
+                                updatedHistory[histIdx] = {
+                                    ...existingEntry,
+                                    cropParts: updatedParts,
+                                    crop: updatedParts.length > 1 ? 'Mieszana' : entry.crop,
+                                    appliedEcoSchemes: Array.from(new Set([...existingEntry.appliedEcoSchemes, ...entry.appliedEcoSchemes]))
+                                };
                             } else {
-                                updatedHistory.push(entry);
+                                const newEntry: FieldHistoryEntry = {
+                                    ...entry,
+                                    cropParts: [partToAdd]
+                                };
+                                updatedHistory.push(newEntry);
+                                touchedFieldIds.add(field.id);
                             }
                             updatedHistory.sort((a, b) => b.year - a.year);
 
-                            // Always update main crop if this is the active year import
-                            const isPlanYear = entry.year === 2026; // Or logic to check against selected template year
-                            
+                            const isPlanYear = entry.year === 2026;
+                            const maxYearInHistory = updatedHistory.length > 0 ? updatedHistory[0].year : 0;
+                            const isNewestData = entry.year >= maxYearInHistory;
+
                             newFields[existingIdx] = {
                                 ...field,
                                 history: updatedHistory,
-                                crop: isPlanYear ? entry.crop : field.crop,
-                                area: area > 0 ? area : field.area // Update area if provided in crop file (often specific to the crop part)
+                                crop: (isPlanYear || isNewestData) ? (updatedHistory[0].cropParts?.length ? 'Mieszana' : entry.crop) : field.crop
                             };
                             report.success++;
                         } else {
-                            // Create NEW Agricultural Parcel (Działka Rolna)
-                            // This effectively splits the physical parcel into parts A, B, C in the UI list.
+                            // Creating new field from crop - usually shouldn't happen if Parcels imported first
                             const isPlanYear = entry.year === 2026;
-                            
-                            // Construct Name: "Działka 123/4 - A"
-                            const finalName = `Działka ${regNum}${nameSuffix}`;
+                            const finalName = name || `Działka ${regNum}`;
+                            const partToAdd: FieldCropPart = {
+                                designation: designation || 'A',
+                                crop: entry.crop,
+                                area: area || 0,
+                                ecoSchemes: entry.appliedEcoSchemes,
+                                designationZal: entry.designationZal,
+                                paymentList: entry.paymentList,
+                                plantMix: entry.plantMix
+                            };
 
                             newFields.push({
                                 id: Math.random().toString(36).substr(2, 9),
                                 name: finalName,
                                 registrationNumber: regNum,
-                                area: area || 0, // This is the area of the CROP part (e.g. 5ha out of 10ha)
+                                area: area || 0,
                                 eligibleArea: area || 0,
                                 crop: isPlanYear ? entry.crop : 'Nieznana',
-                                history: [entry],
+                                history: [{
+                                    ...entry,
+                                    cropParts: [partToAdd]
+                                }],
                             });
                             report.success++;
                         }
                     });
+                }
+
+                // POST-IMPORT VALIDATION TRIGGER
+                const tempFarmData = {
+                    farmName: 'Temp',
+                    profile: { producerId: 'Temp', totalAreaUR: 0, entryConditionPoints: 0 },
+                    fields: newFields
+                };
+                
+                const totalAreaUR = newFields.reduce((sum, f) => {
+                    const hist = f.history.find(h => h.year === importYear);
+                    return sum + (hist?.area || f.area);
+                }, 0);
+                tempFarmData.profile.totalAreaUR = totalAreaUR;
+
+                const analysis = analyzeFarmState(tempFarmData, importYear);
+                
+                if (analysis.validationIssues.length > 0) {
+                    report.errors.push(`Wykryto ${analysis.validationIssues.length} ostrzeżeń walidacji! Sprawdź Pulpit.`);
+                }
+
+                // --- AUTO-SWITCH YEAR FIX ---
+                // Automatically switch view to the year we just imported
+                if (importYear !== selectedYear) {
+                    setSelectedYear(importYear);
                 }
 
                 return newFields;
@@ -478,19 +649,46 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
         </div>
         
         <div className="flex flex-col items-end gap-3">
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
-                 <span className="text-xs font-bold text-slate-500 uppercase px-2">Rok Kampanii:</span>
-                 <div className="relative">
-                    <select 
-                        value={selectedYear}
-                        onChange={(e) => { setSelectedYear(Number(e.target.value)); }}
-                        className="appearance-none bg-white border border-slate-300 text-slate-700 py-1.5 pl-3 pr-8 rounded-md text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                        {availableYears.map(year => (
-                            <option key={year} value={year}>{year} {year === 2026 ? '(Plan)' : ''}</option>
-                        ))}
-                    </select>
-                    <Calendar className="absolute right-2 top-1.5 text-slate-400 pointer-events-none" size={16} />
+             <div className="flex items-center gap-2">
+                 {/* Explicit Save Button */}
+                 {onSave && (
+                     <button
+                        onClick={handleManualSave}
+                        disabled={isSaving}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-all ${
+                            saveStatus === 'SUCCESS' 
+                            ? 'bg-green-100 text-green-700 border border-green-200'
+                            : saveStatus === 'ERROR'
+                                ? 'bg-red-100 text-red-700 border border-red-200'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow'
+                        }`}
+                     >
+                        {isSaving ? <Loader2 size={16} className="animate-spin" /> : 
+                         saveStatus === 'SUCCESS' ? <Check size={16} /> :
+                         saveStatus === 'ERROR' ? <AlertCircle size={16} /> :
+                         <Save size={16} />}
+                         
+                         {isSaving ? 'Zapisywanie...' : 
+                          saveStatus === 'SUCCESS' ? 'Zapisano!' :
+                          saveStatus === 'ERROR' ? 'Błąd' :
+                          'Zapisz w Bazie'}
+                     </button>
+                 )}
+                 
+                 <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                     <span className="text-xs font-bold text-slate-500 uppercase px-2">Rok Kampanii:</span>
+                     <div className="relative">
+                        <select 
+                            value={selectedYear}
+                            onChange={(e) => { setSelectedYear(Number(e.target.value)); }}
+                            className="appearance-none bg-white border border-slate-300 text-slate-700 py-1.5 pl-3 pr-8 rounded-md text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        >
+                            {availableYears.map(year => (
+                                <option key={year} value={year}>{year} {year === 2026 ? '(Plan)' : ''}</option>
+                            ))}
+                        </select>
+                        <Calendar className="absolute right-2 top-1.5 text-slate-400 pointer-events-none" size={16} />
+                     </div>
                  </div>
             </div>
         </div>
@@ -530,6 +728,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             onUpdateFields={(updated) => setFields(updated)}
             onImport={() => handleImportClick('PARCELS')}
             onDownload={() => handleDownloadTemplate('PARCELS')}
+            onCopyFromYear={(src) => handleCopyFromYear(src, 'PARCELS')}
           />
       ) : (
           <CropManager 
@@ -538,6 +737,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             onUpdateFields={(updated) => setFields(updated)}
             onImport={() => handleImportClick('CROPS')}
             onDownload={() => handleDownloadTemplate('CROPS')}
+            onCopyFromYear={(src) => handleCopyFromYear(src, 'CROPS')}
           />
       )}
 

@@ -12,44 +12,65 @@ export interface CropDefinition {
     isCatchCrop: boolean; // Czy nadaje się na międzyplon
 }
 
+// Sub-structure for split parcels (ARiMR logic: Reference Parcel -> Multiple Agricultural Parcels)
+export interface FieldCropPart {
+    designation: string; // Oznaczenie (A, B, C...)
+    crop: string; // Roślina
+    area: number; // Wielkość zadeklarowanej powierzchni w granicach działki referencyjnej
+    ecoSchemes: string[];
+    
+    // Additional optional details per part
+    designationZal?: string; 
+    paymentList?: string;
+    plantMix?: string;
+}
+
 // Tabela: Dzialki_Historia
 export interface FieldHistoryEntry {
   year: number; // 2021, 2022, 2023, 2024, 2025
-  crop: string;
-  appliedEcoSchemes: string[]; // E_USU, E_IPR, E_OPN
+  crop: string; // Dominant crop (or "Mieszana" if multiple parts)
+  appliedEcoSchemes: string[]; // E_USU, E_IPR, E_OPN (Union of all parts)
+  
+  // Year-specific dimensions (to keep years independent)
+  area?: number; 
+  eligibleArea?: number;
+
+  // NEW: List of specific crops on this reference parcel for this year
+  cropParts?: FieldCropPart[];
+
   limingDate?: string; // YYYY-MM-DD
   soilPh?: number;
 
-  // Additional fields from 'uprawy.csv'
-  designation?: string; // Oznaczenie Uprawy / działki rolnej
-  designationZal?: string; // Oznaczenie Uprawy / działki rolnej ZAL
-  paymentList?: string; // Lista płatności
-  isUnreported?: string; // Czy niezgłoszona (Tak/Nie)
-  plantMix?: string; // Rośliny w mieszance
-  seedQuantity?: string; // Ilość nasion
-  organic?: string; // Ekologiczna (Tak/Nie)
-  onwType?: string; // Obszar ONW
-  onwArea?: number; // Pow. obszaru ONW [ha]
+  // Legacy flat fields (kept for backward compatibility or simple view)
+  designation?: string; 
+  designationZal?: string; 
+  paymentList?: string; 
+  isUnreported?: string; 
+  plantMix?: string; 
+  seedQuantity?: string; 
+  organic?: string; 
+  onwType?: string; 
+  onwArea?: number; 
   
   // Specyficzne płatności (PRSK, ZRSK, RE)
-  prskPackage?: string; // Nr pakietu/wariantu/opcji - płatność PRSK
-  prskPractice?: string; // Praktyka dodatkowa - płatność PRSK
-  prskFruitTreeVariety?: string; // Odmiana drzew owocowych - płatność PRSK
-  prskFruitTreeCount?: number; // L. drzew owocowych - płatność PRSK
-  prskIntercropPlant?: string; // Rośliny w międzyplonie - płatność PRSK
-  prskUsage?: string; // Sposób użytkowania - płatność PRSK
-  prskVariety?: string; // Odmiana uprawy - płatność PRSK
+  prskPackage?: string;
+  prskPractice?: string; 
+  prskFruitTreeVariety?: string; 
+  prskFruitTreeCount?: number; 
+  prskIntercropPlant?: string; 
+  prskUsage?: string; 
+  prskVariety?: string; 
 
-  zrskPackage?: string; // Nr pakietu/wariantu/opcji - płatność ZRSK2327
-  zrskPractice?: string; // Praktyka dodatkowa - płatność ZRSK2327
-  zrskFruitTreeVariety?: string; // Odmiana drzew owocowych - płatność ZRSK2327
-  zrskFruitTreeCount?: number; // L. drzew owocowych - płatność ZRSK2327
-  zrskUsage?: string; // Sposób użytkowania - płatność ZRSK2327
-  zrskVariety?: string; // Odmiana uprawy - płatność ZRSK2327
+  zrskPackage?: string; 
+  zrskPractice?: string; 
+  zrskFruitTreeVariety?: string; 
+  zrskFruitTreeCount?: number; 
+  zrskUsage?: string; 
+  zrskVariety?: string; 
 
-  rePackage?: string; // Nr pakietu/wariantu/opcji - płatność RE2327
+  rePackage?: string; 
   
-  notes?: string; // Uwagi
+  notes?: string; 
 }
 
 // Tabela: Gospodarstwo (Rozszerzona)
@@ -63,8 +84,8 @@ export interface Field {
   id: string;
   name: string; // Identyfikator działki ewidencyjnej
   registrationNumber?: string; // Nr działki ewidencyjnej
-  area: number; // Pow. gruntów ornych ogółem na działce [ha]
-  eligibleArea: number; // Hektar kwalifikujący się ogółem na działce [ha]
+  area: number; // Pow. gruntów ornych ogółem na działce [ha] (Latest/Default)
+  eligibleArea: number; // Hektar kwalifikujący się ogółem na działce [ha] (Latest/Default)
   crop: CropType;
   history: FieldHistoryEntry[]; // Relacja do Dzialki_Historia
 
@@ -111,9 +132,15 @@ export interface SubsidyRate {
   id: string;
   name: string;
   rate: number;
-  unit: 'PLN/ha' | 'PLN/DJP' | 'PLN/pkt' | 'PLN/szt.' | 'PLN/kg';
+  unit: 'PLN/ha' | 'PLN/DJP' | 'PLN/pkt' | 'PLN/szt.' | 'PLN/kg' | 'EUR/ha';
   category: 'EKOSCHEMAT' | 'DOPLATA' | 'DOBROSTAN';
-  year: number; 
+  year: number;
+  
+  // Extended properties for Eco-schemes
+  shortName?: string; // e.g. "E_ZSU"
+  points?: number; // e.g. 5
+  combinableWith?: string; // e.g. "E_OPN, E_PN"
+  description?: string; // Additional tooltip info
 }
 
 export interface OptimizationRecommendation {
@@ -128,6 +155,30 @@ export interface OptimizationResult {
   totalEstimatedSubsidy: number;
   recommendations: OptimizationRecommendation[];
   complianceNotes: string;
+}
+
+// --- LOGIC / VALIDATION TYPES ---
+export interface ValidationIssue {
+    type: 'ERROR' | 'WARNING';
+    fieldId: string;
+    fieldName: string;
+    message: string;
+}
+
+export interface EcoSchemeCalculation {
+    schemeCode: string;
+    totalPoints: number;
+    totalArea: number;
+    estimatedValue: number;
+}
+
+export interface FarmAnalysisReport {
+    validationIssues: ValidationIssue[];
+    ecoSchemes: EcoSchemeCalculation[];
+    totalPoints: number;
+    requiredPoints: number; // 25% * 5pkt condition
+    isEntryConditionMet: boolean;
+    totalEstimatedValue: number;
 }
 
 // --- TASKS / PLANNER ---

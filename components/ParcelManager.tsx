@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { MapPin, Edit2, Save, X, Trash2, AlertCircle, Map, UploadCloud, Download, Filter } from 'lucide-react';
+import { MapPin, Edit2, Save, X, Trash2, AlertCircle, Map, UploadCloud, Download, Layers, Copy } from 'lucide-react';
 import { Field } from '../types';
 
 interface ParcelManagerProps {
@@ -9,11 +9,12 @@ interface ParcelManagerProps {
   onUpdateFields: (updatedFields: Field[]) => void;
   onImport: () => void;
   onDownload: () => void;
+  onCopyFromYear?: (year: number) => void;
 }
 
-const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onUpdateFields, onImport, onDownload }) => {
+const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onUpdateFields, onImport, onDownload, onCopyFromYear }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAllFields, setShowAllFields] = useState(false);
+  
   const [editForm, setEditForm] = useState<{
       name: string;
       registrationNumber: string;
@@ -35,13 +36,46 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
       return isNaN(num) ? 0 : num;
   };
 
+  const getDimensionsForYear = (field: Field, year: number) => {
+      const historyEntry = field.history?.find(h => h.year === year);
+      
+      let area = historyEntry?.area;
+      let eligible = historyEntry?.eligibleArea;
+
+      if (area === undefined) {
+           // STRICT: No auto-fallback for 2026. Only show if explicitly exists.
+           return { area: 0, eligible: 0 };
+      }
+      return { area: area || 0, eligible: eligible || 0 };
+  };
+
+  // --- STRICT FILTERING LOGIC ---
+  const visibleFields = fields.filter(field => {
+      const historyEntry = field.history?.find(h => h.year === selectedYear);
+      
+      if (!historyEntry) return false;
+
+      // FILTER OUT CROPS: If it has designation, it's a Crop Structure entry.
+      // Ewidencja should be clean parcels.
+      if (historyEntry && (historyEntry.designation || historyEntry.designationZal)) {
+          return false;
+      }
+      return true;
+  }).sort((a, b) => (a.registrationNumber || '').localeCompare(b.registrationNumber || ''));
+
+  // Calc totals for footer
+  const totalEligible = visibleFields.reduce((sum, f) => sum + getDimensionsForYear(f, selectedYear).eligible, 0);
+  const totalGeodetic = visibleFields.reduce((sum, f) => sum + getDimensionsForYear(f, selectedYear).area, 0);
+
   const startEditing = (field: Field) => {
     setEditingId(field.id);
+    const dims = getDimensionsForYear(field, selectedYear);
+    
     setEditForm({
         name: field.name,
         registrationNumber: field.registrationNumber || '',
-        area: field.area.toString().replace('.', ','), 
-        eligibleArea: field.eligibleArea.toString().replace('.', ','),
+        area: dims.area.toString().replace('.', ','), 
+        eligibleArea: dims.eligible.toString().replace('.', ','),
         commune: field.commune || '',
         precinctName: field.precinctName || '',
         precinctNumber: field.precinctNumber || '',
@@ -54,18 +88,48 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
   const saveEditing = (id: string) => {
       const updatedFields = fields.map(field => {
           if (field.id !== id) return field;
+          
+          const newArea = parsePolishNumber(editForm.area);
+          const newEligible = parsePolishNumber(editForm.eligibleArea) || newArea;
+
+          const updatedHistory = [...(field.history || [])];
+          const histIndex = updatedHistory.findIndex(h => h.year === selectedYear);
+          
+          if (histIndex >= 0) {
+              updatedHistory[histIndex] = {
+                  ...updatedHistory[histIndex],
+                  area: newArea,
+                  eligibleArea: newEligible
+              };
+          } else {
+              updatedHistory.push({
+                  year: selectedYear,
+                  crop: 'Nieznana',
+                  appliedEcoSchemes: [],
+                  area: newArea,
+                  eligibleArea: newEligible
+              });
+              updatedHistory.sort((a,b) => b.year - a.year);
+          }
+
+          // Also update root fields if this is the "latest" year (simplification)
+          // But keep year strictly separated in history
+          const isPlanYear = selectedYear === 2026;
+
           return {
               ...field,
               name: editForm.name,
               registrationNumber: editForm.registrationNumber,
-              area: parsePolishNumber(editForm.area),
-              eligibleArea: parsePolishNumber(editForm.eligibleArea) || parsePolishNumber(editForm.area),
+              // Only update root if we are in plan year, otherwise keep current state
+              area: isPlanYear ? newArea : field.area,
+              eligibleArea: isPlanYear ? newEligible : field.eligibleArea,
               commune: editForm.commune,
               precinctName: editForm.precinctName,
               precinctNumber: editForm.precinctNumber,
               mapSheet: editForm.mapSheet,
               voivodeship: editForm.voivodeship,
-              district: editForm.district
+              district: editForm.district,
+              history: updatedHistory
           };
       });
       onUpdateFields(updatedFields);
@@ -73,33 +137,36 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
   };
 
   const removeField = (id: string) => {
-    if (window.confirm("Czy na pewno chcesz trwale usunąć to pole z ewidencji? Operacja jest nieodwracalna.")) {
-        onUpdateFields(fields.filter(f => f.id !== id));
+    const field = fields.find(f => f.id === id);
+    if (!field) return;
+
+    // Check if field has history in other years
+    const otherYears = field.history.filter(h => h.year !== selectedYear).map(h => h.year);
+    
+    let confirmMessage = `Czy na pewno chcesz usunąć działkę "${field.name}" (${field.registrationNumber})?`;
+    
+    if (otherYears.length > 0) {
+        // If it exists in other years, we only remove the history entry for THIS year
+        if (window.confirm(`Działka "${field.name}" posiada historię w innych latach (${otherYears.join(', ')}).\n\nCzy chcesz usunąć wpis TYLKO dla roku ${selectedYear}?`)) {
+             const updatedFields = fields.map(f => {
+                 if (f.id !== id) return f;
+                 return { ...f, history: f.history.filter(h => h.year !== selectedYear) };
+             });
+             onUpdateFields(updatedFields);
+        }
+    } else {
+        // Full delete
+        confirmMessage += `\n\nDziałka zostanie trwale usunięta z ewidencji (brak historii).`;
+        if (window.confirm(confirmMessage)) {
+            onUpdateFields(fields.filter(f => f.id !== id));
+        }
     }
   };
-
-  // Filter visible fields based on history or showAll flag
-  const visibleFields = fields.filter(field => {
-      if (showAllFields) return true;
-      // Only show fields that have a history entry for the selected year
-      return field.history && field.history.some(h => h.year === selectedYear);
-  });
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
         {/* Toolbar */}
-        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50">
-            
-            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:border-emerald-300 transition-colors">
-                <input 
-                    type="checkbox" 
-                    checked={showAllFields} 
-                    onChange={(e) => setShowAllFields(e.target.checked)} 
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" 
-                />
-                <span className="font-medium">Pokaż cały rejestr (wszystkie lata)</span>
-            </label>
-
+        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-end items-center gap-4 bg-slate-50">
             <div className="flex gap-2">
                 <button 
                     onClick={onDownload}
@@ -123,14 +190,17 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
               <th className="p-4 font-semibold text-slate-600">Nazwa / ID</th>
               <th className="p-4 font-semibold text-slate-600">Nr Ewidencyjny</th>
               <th className="p-4 font-semibold text-slate-600">Lokalizacja (Gmina/Obręb)</th>
-              <th className="p-4 font-semibold text-slate-600">Pow. Orna</th>
-              <th className="p-4 font-semibold text-slate-600">Pow. Kwal.</th>
+              {/* SWAPPED: Primary column is now PEG (Eligible) */}
+              <th className="p-4 font-semibold text-slate-800 bg-amber-50 border-x border-amber-100">Hektar kwalifikujący się (PEG)</th>
+              <th className="p-4 font-semibold text-slate-600">Pow. Geodezyjna</th>
               <th className="p-4 font-semibold text-slate-600 text-right">Akcje</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {visibleFields.map(field => {
+            {visibleFields.map((field) => {
                 const isEditing = editingId === field.id;
+                const dims = getDimensionsForYear(field, selectedYear);
+                
                 return (
                   <tr key={field.id} className={`transition-colors ${isEditing ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
                     {/* NAME */}
@@ -139,16 +209,20 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                         <div className="p-2 rounded-lg bg-slate-100 text-slate-600">
                           <MapPin size={18} />
                         </div>
-                        {isEditing ? (
-                            <input 
-                                type="text"
-                                value={editForm.name}
-                                onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                                className="border border-amber-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                        ) : (
-                            <span className="font-medium text-slate-900" title={field.name}>{field.name}</span>
-                        )}
+                        <div className="flex flex-col">
+                            {isEditing ? (
+                                <input 
+                                    type="text"
+                                    value={editForm.name}
+                                    onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                                    className="border border-amber-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                />
+                            ) : (
+                                <span className="font-medium text-slate-900" title={field.name}>
+                                    {field.name}
+                                </span>
+                            )}
+                        </div>
                       </div>
                     </td>
 
@@ -206,8 +280,22 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                         )}
                     </td>
 
-                    {/* AREA */}
-                    <td className="p-4 text-slate-700 font-semibold">
+                    {/* ELIGIBLE AREA (PEG) - Now the primary highlighted column */}
+                    <td className="p-4 text-slate-800 font-bold bg-amber-50/50 border-x border-amber-100">
+                        {isEditing ? (
+                            <input 
+                                type="text"
+                                value={editForm.eligibleArea}
+                                onChange={(e) => setEditForm({...editForm, eligibleArea: e.target.value})}
+                                className="border border-amber-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white"
+                            />
+                        ) : (
+                            `${dims.eligible.toFixed(2)} ha`
+                        )}
+                    </td>
+
+                    {/* GEODETIC AREA - Moved to secondary */}
+                    <td className="p-4 text-slate-600">
                         {isEditing ? (
                             <input 
                                 type="text"
@@ -216,27 +304,8 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                                 className="border border-amber-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-amber-500"
                             />
                         ) : (
-                            `${field.area.toFixed(2)} ha`
-                        )}
-                    </td>
-
-                    {/* ELIGIBLE AREA */}
-                    <td className="p-4 text-slate-600">
-                        {isEditing ? (
-                            <input 
-                                type="text"
-                                value={editForm.eligibleArea}
-                                onChange={(e) => setEditForm({...editForm, eligibleArea: e.target.value})}
-                                className="border border-amber-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                        ) : (
                             <div className="flex items-center gap-2">
-                                <span>{field.eligibleArea.toFixed(2)} ha</span>
-                                {field.eligibleArea < field.area && (
-                                    <span title="Powierzchnia kwalifikowana mniejsza od całkowitej" className="flex items-center">
-                                        <AlertCircle size={14} className="text-amber-500" />
-                                    </span>
-                                )}
+                                <span>{dims.area.toFixed(2)} ha</span>
                             </div>
                         )}
                     </td>
@@ -251,7 +320,7 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                         ) : (
                             <div className="flex justify-end space-x-2">
                                 <button onClick={() => startEditing(field)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edytuj"><Edit2 size={18} /></button>
-                                <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Usuń działkę"><Trash2 size={18} /></button>
+                                <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Usuń działkę z bazy (Kosz)"><Trash2 size={18} /></button>
                             </div>
                         )}
                     </td>
@@ -259,17 +328,37 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                 );
             })}
             
+            {/* FOOTER SUMMARY */}
+            {visibleFields.length > 0 && (
+                <tr className="bg-slate-100 border-t-2 border-slate-200 font-bold text-slate-700">
+                    <td colSpan={3} className="p-4 text-right">SUMA (Dla widocznych działek):</td>
+                    <td className="p-4 text-emerald-700">{totalEligible.toFixed(2)} ha</td>
+                    <td className="p-4 text-slate-600">{totalGeodetic.toFixed(2)} ha</td>
+                    <td></td>
+                </tr>
+            )}
+            
             {visibleFields.length === 0 && (
               <tr>
                 <td colSpan={6} className="p-12 text-center">
                   <div className="flex flex-col items-center justify-center">
                     <Map size={48} className="text-slate-300 mb-4" />
                     <h3 className="text-lg font-medium text-slate-700 mb-2">Brak zdefiniowanych działek w {selectedYear}</h3>
-                    <p className="text-slate-500 max-w-md mx-auto">
+                    <p className="text-slate-500 max-w-md mx-auto mb-4">
                         {fields.length > 0 
-                         ? "Masz zaimportowane działki w innych latach. Zaznacz 'Pokaż cały rejestr' aby je zobaczyć." 
+                         ? "Dane dla tego roku nie zostały wczytane z pliku Działek." 
                          : "Lista działek jest pusta. Zaimportuj plik 'Działki' dla tego roku."}
                     </p>
+                    
+                    {onCopyFromYear && (
+                        <button 
+                            onClick={() => onCopyFromYear(selectedYear - 1)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors shadow-sm text-sm font-semibold"
+                        >
+                            <Copy size={16} />
+                            <span>Kopiuj działki z {selectedYear - 1}</span>
+                        </button>
+                    )}
                   </div>
                 </td>
               </tr>

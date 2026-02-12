@@ -32,15 +32,39 @@ const App: React.FC = () => {
   const [clients, setClients] = useState<FarmerClient[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [tasks, setTasks] = useState<FarmTask[]>(MOCK_TASKS);
+  
+  // Persistence: Tasks
+  const [tasks, setTasks] = useState<FarmTask[]>(() => {
+      try {
+          const saved = localStorage.getItem('ao_tasks');
+          return saved ? JSON.parse(saved) : MOCK_TASKS;
+      } catch (e) {
+          console.error("Error loading tasks", e);
+          return MOCK_TASKS;
+      }
+  });
+
+  useEffect(() => {
+      localStorage.setItem('ao_tasks', JSON.stringify(tasks));
+  }, [tasks]);
 
   // Active Client State (For Advisor) - uses producerId (EP)
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
   // Persistence: CSV Templates
   const [csvTemplates, setCsvTemplates] = useState<CsvTemplate[]>(() => {
-      const saved = localStorage.getItem('ao_csv_templates');
-      return saved ? JSON.parse(saved) : DEFAULT_CSV_TEMPLATES;
+      try {
+          const saved = localStorage.getItem('ao_csv_templates');
+          if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                  return parsed;
+              }
+          }
+      } catch (e) {
+          console.error("Error loading CSV templates", e);
+      }
+      return DEFAULT_CSV_TEMPLATES;
   });
 
   useEffect(() => {
@@ -66,16 +90,53 @@ const App: React.FC = () => {
   // --- DATA LOADING HELPERS ---
 
   const loadFarmDataForClient = async (client: FarmerClient) => {
-    // 1. Load Fields from API (Guard with offline check)
+    // Strategy:
+    // 1. If Online -> Fetch from API (Master of Truth).
+    // 2. If API returns EMPTY list (or fails), CHECK LocalStorage. 
+    //    This is crucial for "Remember Import" functionality if backend is reset or empty.
+    // 3. If LocalStorage empty -> Use Mocks (unless it's the specific demo user 050237165).
+
     let loadedFields: Field[] = [];
-    
+    let loadedFromApi = false;
+
+    // 1. Try API first if online
     if (!isOffline) {
-        loadedFields = await api.getClientFields(client.producerId);
+        try {
+            const apiFields = await api.getClientFields(client.producerId);
+            if (apiFields && apiFields.length > 0) {
+                loadedFields = apiFields;
+                loadedFromApi = true;
+                console.log(`Loaded ${loadedFields.length} fields from API for ${client.producerId}`);
+            } else {
+                console.log("API returned 0 fields. Checking local storage...");
+            }
+        } catch (e) {
+            console.warn("API load failed, falling back to local storage", e);
+        }
+    }
+
+    // 2. Fallback/Recovery from LocalStorage
+    // If API failed OR returned 0 fields, we try to recover from LocalStorage
+    if (!loadedFromApi || loadedFields.length === 0) {
+        const storageKey = `fields_${client.producerId}`;
+        const localFieldsJson = localStorage.getItem(storageKey);
+        if (localFieldsJson) {
+            try {
+                const parsed = JSON.parse(localFieldsJson);
+                if (parsed.length > 0) {
+                    loadedFields = parsed;
+                    console.log(`Loaded ${loadedFields.length} fields from LocalStorage (Recovery) for ${client.producerId}`);
+                }
+            } catch (e) {
+                console.error("Error parsing local storage fields", e);
+            }
+        }
     }
     
-    // 2. Fallback for demo/mock logic (Generic Mock Fields if list is empty or offline)
-    if (loadedFields.length === 0) {
-        if (isOffline) {
+    // 3. Fallback for demo/mock logic (Generic Mock Fields if list is empty AND offline)
+    // We want Linkowski (050237165) to start empty if nothing saved.
+    if (loadedFields.length === 0 && !loadedFromApi) {
+        if (isOffline && client.producerId !== "050237165") {
              loadedFields = MOCK_FIELDS;
         }
     }
@@ -87,7 +148,7 @@ const App: React.FC = () => {
         : (loadedFields.length > 0 ? parseFloat(loadedFields.reduce((sum, f) => sum + f.area, 0).toFixed(2)) : client.totalArea);
 
     // Compute display farm name
-    const displayFarmName = `${client.lastName} ${client.firstName}`;
+    const displayFarmName = client.farmName || `${client.lastName} ${client.firstName}`;
 
     setFarmData({
         farmName: displayFarmName,
@@ -116,33 +177,57 @@ const App: React.FC = () => {
       
       let data: FarmerClient[] = [];
 
-      if (online) {
+      // Try LocalStorage for Clients list to remember documents added in previous sessions
+      const localClients = localStorage.getItem('agro_clients_list');
+      
+      if (localClients) {
+          data = JSON.parse(localClients);
+      } else if (online) {
           data = await api.getClients();
       } else {
-          // If offline, default to mocks immediately without trying fetch
+          // If offline and no local data, default to mocks
           data = MOCK_CLIENTS;
-      }
-      
-      // Safety check: if online but API returned empty (e.g. DB empty), fallback to mock for demo? 
-      // Optional: keep strict. Here we assume if online && empty => empty list.
-      if (online && data.length === 0) {
-          // Maybe we want to seed mocks even if online if empty? 
-          // For now, let's respect API result.
       }
       
       setClients(data);
       setLoadingClients(false);
   };
 
+  // Save clients to local storage whenever they change to persist documents/status
+  useEffect(() => {
+      if (clients.length > 0) {
+          localStorage.setItem('agro_clients_list', JSON.stringify(clients));
+      }
+  }, [clients]);
+
   // --- AUTH HANDLERS ---
 
-  const handleLogin = async (role: UserRole) => {
+  const handleLogin = async (role: UserRole, loginId?: string) => {
     setUserRole(role);
     setIsLoggedIn(true);
     
     if (role === 'ADVISOR') {
         setCurrentView('FARMERS_LIST');
     } else {
+        // Init Farmer Data
+        const producerId = loginId || "050237165";
+        setSelectedClientId(producerId);
+
+        // Try to find if this client exists in our mock/local list, else create dummy
+        const existing = clients.find(c => c.producerId === producerId) || MOCK_CLIENTS.find(c => c.producerId === producerId);
+        
+        const clientInfo: FarmerClient = existing || {
+            producerId: producerId,
+            firstName: "Rolnik", 
+            lastName: "Testowy",
+            totalArea: 0,
+            status: "ACTIVE",
+            lastContact: "",
+            documents: [],
+            farmName: "Moje Gospodarstwo"
+        };
+        
+        await loadFarmDataForClient(clientInfo);
         setCurrentView('DASHBOARD');
     }
   };
@@ -165,18 +250,47 @@ const App: React.FC = () => {
      setFarmData(prev => {
         const updatedFields = typeof newFieldsInput === 'function' ? newFieldsInput(prev.fields) : newFieldsInput;
         
+        // PERSISTENCE: Save to LocalStorage immediately
+        // Use selectedClientId (if Advisor) OR fallback to current profile ID (if Farmer/Auto)
+        const pid = selectedClientId || prev.profile.producerId;
+        
+        if (pid) {
+            localStorage.setItem(`fields_${pid}`, JSON.stringify(updatedFields));
+        }
+
         // Save to API (Guard with offline check)
-        // Side-effect in state setter is generally avoided but used here for simplicity in functional update flow
-        if (selectedClientId && !isOffline) {
-            api.saveClientFields(selectedClientId, updatedFields).catch(err => console.error("Save error", err));
+        // Note: For heavy updates like imports, we might prefer explicit saves, but this keeps state consistent
+        if (pid && !isOffline) {
+            api.saveClientFields(pid, updatedFields).catch(err => console.error("Auto-save error", err));
         }
         return { ...prev, fields: updatedFields };
      });
   };
+  
+  // Explicit Save Handler for Buttons
+  const handleForceSave = async () => {
+      const pid = selectedClientId || farmData.profile.producerId;
+      if (!pid) return false;
+      
+      // Update local storage first
+      localStorage.setItem(`fields_${pid}`, JSON.stringify(farmData.fields));
+      
+      if (!isOffline) {
+          try {
+             await api.saveClientFields(pid, farmData.fields);
+             return true;
+          } catch (e) {
+              console.error("Force save failed", e);
+              return false;
+          }
+      }
+      return true; // "Saved" locally
+  };
 
   // --- DOCUMENT HANDLERS ---
   const handleAddDocument = async (doc: FarmerDocument) => {
-    if (!selectedClientId) return;
+    const pid = selectedClientId || farmData.profile.producerId;
+    if (!pid) return;
 
     let extractedArea: number | null = null;
     if (doc.category === 'WNIOSEK') {
@@ -187,11 +301,11 @@ const App: React.FC = () => {
     }
 
     if (!isOffline) {
-        await api.addDocument(selectedClientId, doc);
+        await api.addDocument(pid, doc);
     }
 
     setClients(prev => prev.map(client => {
-        if (client.producerId === selectedClientId) {
+        if (client.producerId === pid) {
             const updatedDocs = [doc, ...(client.documents || [])]; 
             const updatedArea = extractedArea !== null ? extractedArea : client.totalArea;
             return { ...client, totalArea: updatedArea, documents: updatedDocs };
@@ -208,14 +322,15 @@ const App: React.FC = () => {
   };
 
   const handleRemoveDocument = async (docId: string) => {
-    if (!selectedClientId) return;
+    const pid = selectedClientId || farmData.profile.producerId;
+    if (!pid) return;
     
     if (!isOffline) {
-        await api.removeDocument(selectedClientId, docId);
+        await api.removeDocument(pid, docId);
     }
     
     setClients(prev => prev.map(client => {
-        if (client.producerId === selectedClientId) {
+        if (client.producerId === pid) {
             return { ...client, documents: (client.documents || []).filter(d => d.id !== docId) };
         }
         return client;
@@ -226,8 +341,13 @@ const App: React.FC = () => {
   const handleSaveTemplate = (template: CsvTemplate) => {
       setCsvTemplates(prev => {
           const exists = prev.find(t => t.id === template.id);
-          if (exists) return prev.map(t => t.id === template.id ? template : t);
-          return [...prev, template];
+          let newTemplates;
+          if (exists) {
+              newTemplates = prev.map(t => t.id === template.id ? template : t);
+          } else {
+              newTemplates = [...prev, template];
+          }
+          return newTemplates;
       });
   };
 
@@ -279,6 +399,9 @@ const App: React.FC = () => {
         
         // 2. Optimistic Update
         setClients(prev => prev.filter(c => c.producerId !== producerId));
+        // Clear local storage for this client
+        localStorage.removeItem(`fields_${producerId}`);
+
         if (selectedClientId === producerId) {
             setSelectedClientId(null);
             setCurrentView('FARMERS_LIST');
@@ -300,8 +423,12 @@ const App: React.FC = () => {
   // --- RENDER CONTENT ---
 
   const getSelectedClientDocuments = () => {
-      if (!selectedClientId) return [];
-      const client = clients.find(c => c.producerId === selectedClientId);
+      // Logic: if Advisor, use selectedClientId. If Farmer, use farmData.profile.producerId
+      const pid = selectedClientId || farmData.profile.producerId;
+      if (!pid) return [];
+      
+      const client = clients.find(c => c.producerId === pid);
+      // Fallback for documents if client not in main list (e.g. initial farmer load)
       return client?.documents || [];
   };
 
@@ -341,6 +468,7 @@ const App: React.FC = () => {
                 setFields={updateFields} 
                 csvTemplates={csvTemplates} 
                 initialTab={fieldManagerTab}
+                onSave={handleForceSave}
             />
         );
       case 'DOCUMENTS':
@@ -441,7 +569,12 @@ const App: React.FC = () => {
               <div className="mb-6 bg-slate-800 text-white px-4 py-2 rounded-lg flex justify-between items-center text-sm shadow-md">
                  <div className="flex items-center gap-2 overflow-hidden">
                     <span className="text-slate-400 hidden sm:inline">Obsługiwany klient:</span>
-                    <span className="font-semibold truncate">{farmData.farmName}</span>
+                    <span className="font-semibold truncate">
+                        {farmData.farmName} 
+                        <span className="text-emerald-300 font-mono text-xs ml-2 opacity-80 bg-slate-700 px-1.5 py-0.5 rounded">
+                            EP: {farmData.profile.producerId}
+                        </span>
+                    </span>
                  </div>
                  <button 
                     onClick={() => setCurrentView('FARMERS_LIST')}

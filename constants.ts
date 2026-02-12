@@ -66,28 +66,163 @@ export const SUBSIDY_RATES_2025: SubsidyRate[] = [
   { id: 'P25_18', name: 'Płatność niezwiązana do tytoniu - pozostałe', rate: 2.24, unit: 'PLN/kg', category: 'DOPLATA', year: 2025 },
   { id: 'P25_19', name: 'Uzupełniająca płatność podstawowa', rate: 55.95, unit: 'PLN/ha', category: 'DOPLATA', year: 2025 },
 
-  // --- Tabela 2. Ekoschematy Obszarowe (PDF Tabela 2) ---
-  { id: 'E25_01', name: 'Ekstensywne użytkowanie TUZ z obsadą zwierząt', rate: 437.60, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_02', name: 'Międzyplony ozime lub wsiewki śródplonowe', rate: 437.60, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_03', name: 'Plan nawożenia - wariant podstawowy', rate: 87.52, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_04', name: 'Plan nawożenia - wariant z wapnowaniem', rate: 262.56, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_05', name: 'Zróżnicowana struktura upraw', rate: 233.13, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_06', name: 'Wymieszanie obornika na gruntach ornych (12h)', rate: 175.04, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_07', name: 'Stosowanie nawozów płynnych (nierozbryzgowo)', rate: 262.56, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_08', name: 'Uproszczone systemy uprawy', rate: 262.56, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_09', name: 'Wymieszanie słomy z glebą', rate: 87.52, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_10', name: 'Obszary z roślinami miododajnymi', rate: 931.07, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_11', name: 'Integrowana Produkcja Roślin (Sadownicze)', rate: 1185.24, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_12', name: 'Integrowana Produkcja Roślin (Jagodowe)', rate: 1069.41, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_13', name: 'Integrowana Produkcja Roślin (Rolnicze)', rate: 505.18, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_14', name: 'Integrowana Produkcja Roślin (Warzywne)', rate: 1069.41, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_15', name: 'Biologiczna uprawa (Środki ochrony)', rate: 310.88, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_16', name: 'Biologiczna uprawa (Prep. mikrobiologiczne)', rate: 87.52, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_17', name: 'Retencjonowanie wody na TUZ', rate: 245.98, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_18', name: 'Grunty wyłączone z produkcji', rate: 437.57, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_19', name: 'Materiał siewny (Zboża)', rate: 104.15, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_20', name: 'Materiał siewny (Strączkowe)', rate: 168.93, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
-  { id: 'E25_21', name: 'Materiał siewny (Ziemniaki)', rate: 436.76, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025 },
+  // --- Tabela 2. Ekoschematy Obszarowe (Dane z PDF) ---
+  {
+    id: 'E25_01', 
+    name: 'Ekstensywne użytkowanie TUZ z obsadą zwierząt', 
+    rate: 500.00, // Szacowana stawka (5 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_EKSTUZ',
+    points: 5,
+    combinableWith: 'E_OPN, E_PN, E_IPR, E_RET',
+    description: 'Obsada zwierząt trawożernych 0,3 DJP - 2 DJP/ha na TUZ w okresie od 01.04 - 30.09. Zakaz przeorywania łąk w okresie realizacji ekoschematu. Płatność do łąk poza obszarem NATURA 2000.'
+  },
+  {
+    id: 'E25_02', 
+    name: 'Międzyplony ozime / wsiewki śródplonowe', 
+    rate: 500.00, // Szacowana stawka (5 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_MPW',
+    points: 5,
+    combinableWith: 'E_OPN, E_ZSU, E_OBR, E_PN, E_IPR, E_BOU',
+    description: 'Międzyplony ozime: wysiew 1.07-1.10, utrzymanie do min. 15.02. Mieszanka 2 gatunków (bez samych zbóż). Wsiewki śródplonowe: rośliny bobowate w plon główny.'
+  },
+  {
+    id: 'E25_03', 
+    name: 'Opracowanie i przestrzeganie planu nawożenia - wariant podstawowy', 
+    rate: 100.00, // Szacowana stawka (1 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_OPN_1', // Umowny skrót dla wariantu podstawowego
+    points: 1,
+    combinableWith: '',
+    description: 'Opracowanie i przestrzeganie planu nawozowego do powierzchni GO i TUZ, opartego na bilansie azotu oraz chemicznej analizie gleby (N, P, K, Mg).'
+  },
+  {
+    id: 'E25_04', 
+    name: 'Opracowanie i przestrzeganie planu nawożenia - wariant z wapnowaniem', 
+    rate: 300.00, // Szacowana stawka (3 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_OPN',
+    points: 3,
+    combinableWith: 'E_EKSTUZ, E_MPW, E_ZSU, E_OBR, E_PN, E_USU, E_WSG, E_RET, E_BOU, E_MIOD',
+    description: 'Opracowanie planu oraz zastosowanie wapnowania (dokument zakupu) na gruntach o pH <= 5.5. Wsparcie nie częściej niż raz na 4 lata.'
+  },
+  {
+    id: 'E25_05', 
+    name: 'Zróżnicowana struktura upraw', 
+    rate: 300.00, // Szacowana stawka (3 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_ZSU',
+    points: 3,
+    combinableWith: 'E_MPW, E_OPN, E_OBR, E_PN, E_USU, E_WSG, E_IPR, E_BOU, E_MIOD',
+    description: 'Min. 3 uprawy na GO. Główna < 65%, zboża łącznie < 65%. Min. 20% gatunków wpływających pozytywnie na bilans materii organicznej (np. bobowate). Udział upraw ujemnych (okopowe) < 30%.'
+  },
+  {
+    id: 'E25_06', 
+    name: 'Wymieszanie obornika na gruntach ornych w ciągu 12 godzin', 
+    rate: 200.00, // Szacowana stawka (2 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_OBR',
+    points: 2,
+    combinableWith: 'E_MPW, E_OPN, E_ZSU, E_IPR, E_BOU',
+    description: 'Wymieszanie obornika z glebą max 12h od aplikacji. Wymagane zdjęcie geotagowane (aplikacja ARiMR).'
+  },
+  {
+    id: 'E25_07', 
+    name: 'Stosowanie płynnych nawozów naturalnych innymi metodami niż rozbryzgowo', 
+    rate: 300.00, // Szacowana stawka (3 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_PN',
+    points: 3,
+    combinableWith: 'E_EKSTUZ, E_MPW, E_OPN, E_ZSU, E_USU, E_RET, E_IPR, E_BOU',
+    description: 'Stosowanie na GO i TUZ metodami doglebowymi/wężami wleczonymi. Wymagane zdjęcie geotagowane.'
+  },
+  {
+    id: 'E25_08', 
+    name: 'Uproszczone systemy uprawy', 
+    rate: 400.00, // Szacowana stawka (4 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_USU',
+    points: 4,
+    combinableWith: 'E_OPN, E_ZSU, E_PN, E_MIOD, E_IPR, E_BOU',
+    description: 'Uprawa bezorkowa (kultywator, brona) lub pasowa (strip-till). Pozostawienie resztek pożniwnych w formie mulczu. Rejestr zabiegów.'
+  },
+  {
+    id: 'E25_09', 
+    name: 'Wymieszanie słomy z glebą', 
+    rate: 200.00, // Szacowana stawka (2 pkt * 100 zł)
+    unit: 'PLN/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_WSG',
+    points: 2,
+    combinableWith: 'E_OPN, E_ZSU, E_IPR, E_BOU',
+    description: 'Rozdrobnienie i wymieszanie całej słomy z glebą po zbiorze plonu głównego.'
+  },
+  {
+    id: 'E25_10', 
+    name: 'Obszary z roślinami miododajnymi', 
+    rate: 269.21, // Stawka w EUR/ha przeliczona dynamicznie (ok 1200 PLN) lub stała z PDF
+    unit: 'EUR/ha', // Zgodnie z PDF
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_MIOD',
+    points: 0, // Płatność ryczałtowa
+    combinableWith: 'E_OPN, E_ZSU, E_USU',
+    description: 'Wysiew mieszanki min. 2 gatunków miododajnych. Zakaz produkcji (koszenia, wypasu) do 31.08. Zakaz ŚOR.'
+  },
+  {
+    id: 'E25_11', 
+    name: 'Integrowana Produkcja Roślin', 
+    rate: 292.13, // Stawka w EUR/ha
+    unit: 'EUR/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_IPR',
+    points: 0,
+    combinableWith: 'E_EKSTUZ, E_MPW, E_ZSU, E_OBR, E_PN, E_USU, E_WSG, E_RET',
+    description: 'Certyfikat IP. Prowadzenie produkcji zgodnie z metodyką IP. Szkolenie z zakresu IP. Zgłoszenie do podmiotu certyfikującego.'
+  },
+  {
+    id: 'E25_15', 
+    name: 'Biologiczna ochrona upraw', 
+    rate: 89.89, // Stawka w EUR/ha
+    unit: 'EUR/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_BOU',
+    points: 0,
+    combinableWith: 'E_MPW, E_OPN, E_ZSU, E_OBR, E_PN, E_USU, E_WSG',
+    description: 'Zastosowanie środka ochrony roślin zawierającego mikroorganizmy jako substancje czynne. Rejestr zabiegów.'
+  },
+  {
+    id: 'E25_17', 
+    name: 'Retencjonowanie wody na trwałych użytkach zielonych', 
+    rate: 63.15, // Stawka w EUR/ha
+    unit: 'EUR/ha', 
+    category: 'EKOSCHEMAT', 
+    year: 2025,
+    shortName: 'E_RET',
+    points: 0,
+    combinableWith: 'E_EKSTUZ, E_OPN, E_PN, E_IPR',
+    description: 'Wystąpienie zalania lub podtopienia na TUZ (min. 80% wysycenia) przez min. 12 dni w okresie 1.05 - 30.09. Potwierdzone przez IUNG.'
+  },
 ];
 
 export const MOCK_FIELDS: Field[] = [];
@@ -127,6 +262,7 @@ export const CSV_PARCEL_FIELDS: CsvMappingField[] = [
 ];
 
 export const CSV_CROP_FIELDS: CsvMappingField[] = [
+    { key: 'name', label: 'Identyfikator działki ewidencyjnej (pełny)', required: false }, // ADDED FOR STRICT MATCHING
     { key: 'designation', label: 'Oznaczenie Uprawy / działki rolnej', required: false },
     { key: 'designationZal', label: 'Oznaczenie Uprawy / działki rolnej ZAL', required: false },
     { key: 'area', label: 'Powierzchnia [ha]', required: false },
@@ -161,6 +297,55 @@ export const CSV_CROP_FIELDS: CsvMappingField[] = [
     { key: 'notes', label: 'Uwagi', required: false },
 ];
 
+const DEFAULT_PARCELS_MAPPING = {
+    name: 'Identyfikator działki ewidencyjnej',
+    voivodeship: 'Województwo',
+    district: 'Powiat',
+    commune: 'Gmina',
+    precinctName: 'Nazwa obrębu ewidencyjnego',
+    precinctNumber: 'Nr obrębu ewidencyjnego',
+    mapSheet: 'Nr arkusza mapy',
+    registrationNumber: 'Nr działki ewidencyjnej',
+    eligibleArea: 'Hektar kwalifikujący się ogółem na działce [ha]',
+    area: 'Pow. gruntów ornych ogółem na działce [ha]',
+};
+
+const DEFAULT_CROPS_MAPPING = {
+    name: 'Identyfikator działki ewidencyjnej',
+    designation: 'Oznaczenie Uprawy / działki rolnej',
+    designationZal: 'Oznaczenie Uprawy / działki rolnej ZAL',
+    area: 'Powierzchnia [ha]',
+    crop: 'Roślina uprawna',
+    paymentList: 'Lista płatności',
+    ecoSchemes: 'Lista ekoschematów',
+    isUnreported: 'Czy niezgłoszona',
+    plantMix: 'Rośliny w mieszance',
+    seedQuantity: 'Ilość nasion',
+    organic: 'Ekologiczna',
+    registrationNumber: 'Nr działki ewidencyjnej',
+    specificArea: 'Powierzchnia uprawy w granicach działki ewidencyjnej - ha',
+    onwType: 'Obszar ONW',
+    onwArea: 'Pow. obszaru ONW [ha]',
+    // PRSK
+    prskPackage: 'Nr pakietu/wariantu/opcji - płatność PRSK',
+    prskPractice: 'Praktyka dodatkowa - płatność PRSK',
+    prskFruitTreeVariety: 'Odmiana drzew owocowych - płatność PRSK',
+    prskFruitTreeCount: 'L. drzew owocowych - płatność PRSK',
+    prskIntercropPlant: 'Rośliny w międzyplonie - płatność PRSK',
+    prskUsage: 'Sposób użytkowania - płatność PRSK',
+    prskVariety: 'Odmiana uprawy - płatność PRSK',
+    // ZRSK
+    zrskPackage: 'Nr pakietu/wariantu/opcji - płatność ZRSK2327',
+    zrskPractice: 'Praktyka dodatkowa - płatność ZRSK2327',
+    zrskFruitTreeVariety: 'Odmiana drzew owocowych - płatność ZRSK2327',
+    zrskFruitTreeCount: 'L. drzew owocowych - płatność ZRSK2327',
+    zrskUsage: 'Sposób użytkowania - płatność ZRSK2327',
+    zrskVariety: 'Odmiana uprawy - płatność ZRSK2327',
+    // RE
+    rePackage: 'Nr pakietu/wariantu/opcji - płatność RE2327',
+    notes: 'Uwagi'
+};
+
 export const DEFAULT_CSV_TEMPLATES: CsvTemplate[] = [
     {
         id: 'default_parcels_2025',
@@ -168,18 +353,7 @@ export const DEFAULT_CSV_TEMPLATES: CsvTemplate[] = [
         type: 'PARCELS',
         year: 2025,
         separator: ';',
-        mappings: {
-            name: 'Identyfikator działki ewidencyjnej',
-            voivodeship: 'Województwo',
-            district: 'Powiat',
-            commune: 'Gmina',
-            precinctName: 'Nazwa obrębu ewidencyjnego',
-            precinctNumber: 'Nr obrębu ewidencyjnego',
-            mapSheet: 'Nr arkusza mapy',
-            registrationNumber: 'Nr działki ewidencyjnej',
-            eligibleArea: 'Hektar kwalifikujący się ogółem na działce [ha]',
-            area: 'Pow. gruntów ornych ogółem na działce [ha]',
-        }
+        mappings: DEFAULT_PARCELS_MAPPING
     },
     {
         id: 'default_crops_2025',
@@ -187,39 +361,74 @@ export const DEFAULT_CSV_TEMPLATES: CsvTemplate[] = [
         type: 'CROPS',
         year: 2025,
         separator: ';',
-        mappings: {
-            designation: 'Oznaczenie Uprawy / działki rolnej',
-            designationZal: 'Oznaczenie Uprawy / działki rolnej ZAL',
-            area: 'Powierzchnia [ha]',
-            crop: 'Roślina uprawna',
-            paymentList: 'Lista płatności',
-            ecoSchemes: 'Lista ekoschematów',
-            isUnreported: 'Czy niezgłoszona',
-            plantMix: 'Rośliny w mieszance',
-            seedQuantity: 'Ilość nasion',
-            organic: 'Ekologiczna',
-            registrationNumber: 'Nr działki ewidencyjnej',
-            specificArea: 'Powierzchnia uprawy w granicach działki ewidencyjnej - ha',
-            onwType: 'Obszar ONW',
-            onwArea: 'Pow. obszaru ONW [ha]',
-            // PRSK
-            prskPackage: 'Nr pakietu/wariantu/opcji - płatność PRSK',
-            prskPractice: 'Praktyka dodatkowa - płatność PRSK',
-            prskFruitTreeVariety: 'Odmiana drzew owocowych - płatność PRSK',
-            prskFruitTreeCount: 'L. drzew owocowych - płatność PRSK',
-            prskIntercropPlant: 'Rośliny w międzyplonie - płatność PRSK',
-            prskUsage: 'Sposób użytkowania - płatność PRSK',
-            prskVariety: 'Odmiana uprawy - płatność PRSK',
-            // ZRSK
-            zrskPackage: 'Nr pakietu/wariantu/opcji - płatność ZRSK2327',
-            zrskPractice: 'Praktyka dodatkowa - płatność ZRSK2327',
-            zrskFruitTreeVariety: 'Odmiana drzew owocowych - płatność ZRSK2327',
-            zrskFruitTreeCount: 'L. drzew owocowych - płatność ZRSK2327',
-            zrskUsage: 'Sposób użytkowania - płatność ZRSK2327',
-            zrskVariety: 'Odmiana uprawy - płatność ZRSK2327',
-            // RE
-            rePackage: 'Nr pakietu/wariantu/opcji - płatność RE2327',
-            notes: 'Uwagi'
-        }
+        mappings: DEFAULT_CROPS_MAPPING
+    },
+    // --- 2024 ---
+    {
+        id: 'default_parcels_2024',
+        name: 'Działki 2024 (Import ARiMR)',
+        type: 'PARCELS',
+        year: 2024,
+        separator: ';',
+        mappings: DEFAULT_PARCELS_MAPPING
+    },
+    {
+        id: 'default_crops_2024',
+        name: 'Struktura Zasiewów 2024 (Import ARiMR)',
+        type: 'CROPS',
+        year: 2024,
+        separator: ';',
+        mappings: DEFAULT_CROPS_MAPPING
+    },
+    // --- 2023 ---
+    {
+        id: 'default_parcels_2023',
+        name: 'Działki 2023 (Import ARiMR)',
+        type: 'PARCELS',
+        year: 2023,
+        separator: ';',
+        mappings: DEFAULT_PARCELS_MAPPING
+    },
+    {
+        id: 'default_crops_2023',
+        name: 'Struktura Zasiewów 2023 (Import ARiMR)',
+        type: 'CROPS',
+        year: 2023,
+        separator: ';',
+        mappings: DEFAULT_CROPS_MAPPING
+    },
+    // --- 2022 ---
+    {
+        id: 'default_parcels_2022',
+        name: 'Działki 2022 (Import ARiMR)',
+        type: 'PARCELS',
+        year: 2022,
+        separator: ';',
+        mappings: DEFAULT_PARCELS_MAPPING
+    },
+    {
+        id: 'default_crops_2022',
+        name: 'Struktura Zasiewów 2022 (Import ARiMR)',
+        type: 'CROPS',
+        year: 2022,
+        separator: ';',
+        mappings: DEFAULT_CROPS_MAPPING
+    },
+    // --- 2021 ---
+    {
+        id: 'default_parcels_2021',
+        name: 'Działki 2021 (Import ARiMR)',
+        type: 'PARCELS',
+        year: 2021,
+        separator: ';',
+        mappings: DEFAULT_PARCELS_MAPPING
+    },
+    {
+        id: 'default_crops_2021',
+        name: 'Struktura Zasiewów 2021 (Import ARiMR)',
+        type: 'CROPS',
+        year: 2021,
+        separator: ';',
+        mappings: DEFAULT_CROPS_MAPPING
     }
 ];

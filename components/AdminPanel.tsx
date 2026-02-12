@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf } from 'lucide-react';
+import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf, Info, Link2, Star, CheckSquare, Square } from 'lucide-react';
 import { CsvTemplate, CsvTemplateType, SubsidyRate, CropDefinition } from '../types';
 import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, DEFAULT_CROP_DICTIONARY } from '../constants';
 import { api } from '../services/api';
@@ -40,6 +40,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const [isCreatingRate, setIsCreatingRate] = useState(false);
   const [rateForm, setRateForm] = useState<Partial<SubsidyRate>>({});
   const [selectedRateYear, setSelectedRateYear] = useState<number>(2026);
+  const [rateCategoryFilter, setRateCategoryFilter] = useState<'ALL' | 'DIRECT' | 'ECO'>('ALL');
 
   // Crops Dictionary State
   const [crops, setCrops] = useState<CropDefinition[]>([]);
@@ -47,7 +48,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const [isCreatingCrop, setIsCreatingCrop] = useState(false);
   const [cropForm, setCropForm] = useState<Partial<CropDefinition>>({});
 
-  const availableYears = [2026, 2025, 2024, 2023];
+  const availableYears = [2026, 2025, 2024, 2023, 2022, 2021];
 
   useEffect(() => {
     if (activeMainTab === 'RATES') {
@@ -128,6 +129,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
     setFormSeparator(';');
     setFormYear(2026);
     setMappingRows(initializeRows(activeCsvTab, {}));
+  };
+
+  const handleCopyTemplate = (e: React.MouseEvent, template: CsvTemplate) => {
+      e.stopPropagation(); // Prevent opening edit mode for the original
+      
+      setEditingTemplate(null); // We are creating a NEW one
+      setIsCreatingTemplate(true);
+      
+      // Pre-fill with data from the copied template
+      setFormName(`${template.name} (Kopia)`);
+      setFormSeparator(template.separator);
+      setFormYear(template.year || 2026);
+      setMappingRows(initializeRows(template.type, template.mappings));
   };
 
   const addCustomRow = () => {
@@ -243,7 +257,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           rate: 0,
           unit: 'PLN/ha',
           category: 'EKOSCHEMAT',
-          year: selectedRateYear // Auto-assign selected year
+          year: selectedRateYear,
+          shortName: '',
+          points: 0,
+          combinableWith: '',
+          description: ''
       });
   };
 
@@ -280,6 +298,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
               setIsCreatingRate(false);
           }
       }
+  };
+
+  const toggleCombinableCode = (code: string) => {
+      let current = rateForm.combinableWith || '';
+      // Clean up string
+      let codes = current.split(',').map(s => s.trim()).filter(s => s);
+      
+      if (codes.includes(code)) {
+          codes = codes.filter(c => c !== code);
+      } else {
+          codes.push(code);
+      }
+      
+      setRateForm({ ...rateForm, combinableWith: codes.join(', ') });
   };
 
   // --- CROPS LOGIC ---
@@ -331,9 +363,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   };
 
 
-  // Filter rates by selected year
+  // Filter rates by selected year and category
   const activeRates = rates.filter(r => r.year === selectedRateYear);
   const activeTemplates = templates.filter(t => t.type === activeCsvTab);
+  
+  const directRates = activeRates.filter(r => r.category === 'DOPLATA');
+  const ecoRates = activeRates.filter(r => r.category !== 'DOPLATA');
+
+  // Get all available short names for multi-select, excluding self
+  const availableEcoCodes = activeRates
+    .filter(r => r.category === 'EKOSCHEMAT' && r.shortName && r.id !== rateForm.id)
+    .map(r => r.shortName!)
+    .sort();
 
   return (
     <div className="space-y-6">
@@ -409,10 +450,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                     </div>
                                 </div>
                             </div>
-                            <ChevronRight size={16} className={`text-slate-300 ${editingTemplate?.id === tpl.id ? 'text-emerald-600' : ''}`}/>
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={(e) => handleCopyTemplate(e, tpl)}
+                                    className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Duplikuj szablon"
+                                >
+                                    <Copy size={16} />
+                                </button>
+                                <ChevronRight size={16} className={`text-slate-300 ${editingTemplate?.id === tpl.id ? 'text-emerald-600' : ''}`}/>
+                            </div>
                         </div>
                     ))}
-                    <button onClick={handleCreateNewTemplate} className={`w-full py-3 border-2 border-dashed rounded-lg font-medium flex items-center justify-center gap-2 transition-colors mt-4 ${isCreatingTemplate ? 'border-emerald-500 text-emerald-600 bg-emerald-50' : 'border-slate-300 text-slate-500 hover:border-emerald-500'}`}>
+                    <button onClick={handleCreateNewTemplate} className={`w-full py-3 border-2 border-dashed rounded-lg font-medium flex items-center justify-center gap-2 transition-colors mt-4 ${isCreatingTemplate && !editingTemplate ? 'border-emerald-500 text-emerald-600 bg-emerald-50' : 'border-slate-300 text-slate-500 hover:border-emerald-500'}`}>
                         <Plus size={18} /> Dodaj Nowy
                     </button>
                 </div>
@@ -424,7 +474,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">
                         {/* ... Existing CSV Editor ... */}
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-lg font-bold text-slate-800">{editingTemplate ? 'Edycja Szablonu' : 'Nowy Szablon'}</h3>
+                            <h3 className="text-lg font-bold text-slate-800">{editingTemplate ? 'Edycja Szablonu' : (formName.includes('(Kopia)') ? 'Duplikowanie Szablonu' : 'Nowy Szablon')}</h3>
                             <div className="flex gap-2">
                                 {editingTemplate && <button onClick={() => { if(window.confirm('Usunąć?')) { onDeleteTemplate(editingTemplate.id); setEditingTemplate(null); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 size={18}/></button>}
                                 <button onClick={() => { setIsCreatingTemplate(false); setEditingTemplate(null); }} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg"><X size={24}/></button>
@@ -563,48 +613,92 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                       <span>Lista Stawek ({selectedRateYear})</span>
                       <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{activeRates.length} poz.</span>
                   </h3>
+                  
+                  {/* Category Filters */}
+                  <div className="flex p-1 bg-slate-100 rounded-lg mb-4">
+                      <button
+                          onClick={() => setRateCategoryFilter('ALL')}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${rateCategoryFilter === 'ALL' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          Wszystkie
+                      </button>
+                      <button
+                          onClick={() => setRateCategoryFilter('DIRECT')}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${rateCategoryFilter === 'DIRECT' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          Bezpośrednie
+                      </button>
+                      <button
+                          onClick={() => setRateCategoryFilter('ECO')}
+                          className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${rateCategoryFilter === 'ECO' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >
+                          Ekoschematy
+                      </button>
+                  </div>
 
                   <div className="flex-1 overflow-y-auto space-y-4 pr-2">
                       {/* Section: Direct Payments */}
-                      <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Płatności Bezpośrednie</div>
-                        <div className="space-y-2">
-                        {activeRates.filter(r => r.category === 'DOPLATA').map(rate => (
-                            <div 
-                                key={rate.id}
-                                onClick={() => handleEditRate(rate)}
-                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
-                            >
-                                <div>
-                                    <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
-                                    <div className="text-emerald-600 font-bold text-xs mt-1">{rate.rate} {rate.unit}</div>
-                                </div>
+                      {(rateCategoryFilter === 'ALL' || rateCategoryFilter === 'DIRECT') && (
+                          <div>
+                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sticky top-0 bg-white py-1 z-10">Płatności Bezpośrednie</div>
+                            <div className="space-y-2">
+                                {directRates.length === 0 && <p className="text-xs text-slate-400 italic">Brak stawek w tej kategorii.</p>}
+                                {directRates.map(rate => (
+                                    <div 
+                                        key={rate.id}
+                                        onClick={() => handleEditRate(rate)}
+                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                                    >
+                                        <div>
+                                            <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
+                                            <div className="text-emerald-600 font-bold text-xs mt-1">{rate.rate} {rate.unit}</div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
-                        </div>
-                      </div>
+                          </div>
+                      )}
 
                       {/* Section: Eco-schemes */}
-                      <div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 mt-4">Ekoschematy i Inne</div>
-                        <div className="space-y-2">
-                        {activeRates.filter(r => r.category !== 'DOPLATA').map(rate => (
-                            <div 
-                                key={rate.id}
-                                onClick={() => handleEditRate(rate)}
-                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
-                            >
-                                <div>
-                                    <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
-                                    <div className="flex gap-2 text-xs mt-1">
-                                        <span className="bg-slate-100 text-slate-600 px-1.5 rounded">{rate.category}</span>
-                                        <span className="text-emerald-600 font-bold">{rate.rate} {rate.unit}</span>
+                      {(rateCategoryFilter === 'ALL' || rateCategoryFilter === 'ECO') && (
+                          <div>
+                            <div className={`text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sticky top-0 bg-white py-1 z-10 ${rateCategoryFilter === 'ALL' ? 'mt-4' : ''}`}>Ekoschematy i Inne</div>
+                            <div className="space-y-2">
+                                {ecoRates.length === 0 && <p className="text-xs text-slate-400 italic">Brak stawek w tej kategorii.</p>}
+                                {ecoRates.map(rate => (
+                                    <div 
+                                        key={rate.id}
+                                        onClick={() => handleEditRate(rate)}
+                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center relative group ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                                    >
+                                        <div className="w-full">
+                                            <div className="font-semibold text-slate-800 text-sm line-clamp-1 flex items-center gap-1">
+                                                <span title={rate.name}>{rate.name}</span>
+                                                {rate.description && (
+                                                    <div className="relative group/tooltip">
+                                                        <Info size={14} className="text-slate-400 hover:text-emerald-500 transition-colors" />
+                                                        <div className="absolute left-6 top-0 w-64 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible z-50 pointer-events-none transition-all">
+                                                            {rate.description}
+                                                            <div className="absolute -left-1 top-1.5 w-2 h-2 bg-slate-800 rotate-45"></div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-2 text-xs mt-1 items-center">
+                                                {rate.shortName && (
+                                                    <span className="bg-slate-100 text-slate-600 px-1.5 rounded font-mono border border-slate-200">{rate.shortName}</span>
+                                                )}
+                                                <span className="text-emerald-600 font-bold">{rate.rate} {rate.unit}</span>
+                                                {rate.points !== undefined && rate.points > 0 && (
+                                                    <span className="text-blue-600 font-semibold bg-blue-50 px-1 rounded border border-blue-100 flex items-center gap-0.5"><Star size={10} fill="currentColor"/> {rate.points} pkt</span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                ))}
                             </div>
-                        ))}
-                        </div>
-                      </div>
+                          </div>
+                      )}
                   </div>
                   <button onClick={handleCreateRate} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Stawkę ({selectedRateYear})</button>
               </div>
@@ -634,16 +728,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                   </div>
                               </div>
 
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-1">Nazwa Programu / Ekoschematu</label>
-                                  <input 
-                                    type="text" 
-                                    required
-                                    placeholder="np. Ekoschemat - Rolnictwo Węglowe"
-                                    value={rateForm.name || ''}
-                                    onChange={e => setRateForm({...rateForm, name: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
-                                  />
+                              <div className="grid grid-cols-12 gap-4">
+                                  <div className="col-span-8">
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Nazwa Programu / Ekoschematu</label>
+                                      <input 
+                                        type="text" 
+                                        required
+                                        placeholder="np. Ekoschemat - Rolnictwo Węglowe"
+                                        value={rateForm.name || ''}
+                                        onChange={e => setRateForm({...rateForm, name: e.target.value})}
+                                        className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                      />
+                                  </div>
+                                  <div className="col-span-4">
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Kategoria</label>
+                                      <select 
+                                        value={rateForm.category || 'EKOSCHEMAT'}
+                                        onChange={e => setRateForm({...rateForm, category: e.target.value as any})}
+                                        className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                      >
+                                          <option value="EKOSCHEMAT">EKOSCHEMAT</option>
+                                          <option value="DOPLATA">DOPŁATA PODSTAWOWA</option>
+                                          <option value="DOBROSTAN">DOBROSTAN</option>
+                                      </select>
+                                  </div>
                               </div>
 
                               <div className="grid grid-cols-2 gap-4">
@@ -670,22 +778,91 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                           <option value="PLN/pkt">PLN/pkt</option>
                                           <option value="PLN/szt.">PLN/szt.</option>
                                           <option value="PLN/kg">PLN/kg</option>
+                                          <option value="EUR/ha">EUR/ha</option>
                                       </select>
                                   </div>
                               </div>
-
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-1">Kategoria</label>
-                                  <select 
-                                    value={rateForm.category || 'EKOSCHEMAT'}
-                                    onChange={e => setRateForm({...rateForm, category: e.target.value as any})}
-                                    className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
-                                  >
-                                      <option value="EKOSCHEMAT">EKOSCHEMAT</option>
-                                      <option value="DOPLATA">DOPŁATA PODSTAWOWA</option>
-                                      <option value="DOBROSTAN">DOBROSTAN</option>
-                                  </select>
-                              </div>
+                              
+                              {/* Extra Fields for Ecoschemes */}
+                              {rateForm.category === 'EKOSCHEMAT' && (
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 mt-2">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
+                                        <Leaf size={14}/> Szczegóły Ekoschematu
+                                    </h4>
+                                    
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-4">
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Skrót Nazwy</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="np. E_ZSU"
+                                                value={rateForm.shortName || ''}
+                                                onChange={e => setRateForm({...rateForm, shortName: e.target.value})}
+                                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm"
+                                            />
+                                        </div>
+                                        <div className="col-span-3">
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">Punkty</label>
+                                            <input 
+                                                type="number" 
+                                                step="0.1"
+                                                value={rateForm.points || 0}
+                                                onChange={e => setRateForm({...rateForm, points: parseFloat(e.target.value)})}
+                                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                            />
+                                        </div>
+                                        <div className="col-span-12">
+                                            <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
+                                                <Link2 size={14}/> Można łączyć na 1 działce z:
+                                            </label>
+                                            
+                                            {/* Multi-select Grid */}
+                                            <div className="bg-white border border-slate-300 rounded-lg p-3">
+                                                <div className="grid grid-cols-3 gap-2 mb-2">
+                                                    {availableEcoCodes.map(code => {
+                                                        const isSelected = (rateForm.combinableWith || '').split(',').map(s=>s.trim()).includes(code);
+                                                        return (
+                                                            <div 
+                                                                key={code} 
+                                                                onClick={() => toggleCombinableCode(code)}
+                                                                className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors border ${isSelected ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-transparent hover:bg-slate-100'}`}
+                                                            >
+                                                                {isSelected 
+                                                                    ? <CheckSquare size={16} className="text-emerald-600" /> 
+                                                                    : <Square size={16} className="text-slate-300" />
+                                                                }
+                                                                <span className={`text-xs font-mono font-medium ${isSelected ? 'text-emerald-700' : 'text-slate-600'}`}>{code}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Ręczna edycja (np. E_OPN, E_PN, E_IPR)"
+                                                    value={rateForm.combinableWith || ''}
+                                                    onChange={e => setRateForm({...rateForm, combinableWith: e.target.value})}
+                                                    className="w-full text-xs text-slate-500 border-t border-slate-100 pt-2 mt-2 focus:outline-none bg-transparent"
+                                                />
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1">
+                                                Zaznacz kody powyżej lub wpisz ręcznie.
+                                            </p>
+                                        </div>
+                                        <div className="col-span-12">
+                                            <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
+                                                <Info size={14}/> Dodatkowy Opis (Tooltip)
+                                            </label>
+                                            <textarea 
+                                                rows={3}
+                                                placeholder="Opis wymogów, terminów itp. wyświetlany po najechaniu na ikonę info."
+                                                value={rateForm.description || ''}
+                                                onChange={e => setRateForm({...rateForm, description: e.target.value})}
+                                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none text-sm resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                              )}
                               
                               <div className="pt-4 flex justify-end gap-3">
                                   <button type="button" onClick={() => { setIsCreatingRate(false); setEditingRate(null); }} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Anuluj</button>
