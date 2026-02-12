@@ -26,6 +26,7 @@ const App: React.FC = () => {
   // View State
   const [currentView, setCurrentView] = useState<ViewState>('DASHBOARD');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [fieldManagerTab, setFieldManagerTab] = useState<'PARCELS' | 'CROPS'>('PARCELS');
   
   // Data State
   const [clients, setClients] = useState<FarmerClient[]>([]);
@@ -312,7 +313,10 @@ const App: React.FC = () => {
                 farmData={farmData} 
                 recentDocuments={getSelectedClientDocuments()}
                 onViewAllDocuments={() => setCurrentView('DOCUMENTS')}
-                onManageFields={() => setCurrentView('FIELDS')}
+                onManageFields={(tab) => {
+                    if (tab) setFieldManagerTab(tab);
+                    setCurrentView('FIELDS');
+                }}
             />
         ) : (
             <FarmerDashboard 
@@ -331,7 +335,14 @@ const App: React.FC = () => {
             />
         );
       case 'FIELDS':
-        return <FieldManager fields={farmData.fields} setFields={updateFields} csvTemplates={csvTemplates} />;
+        return (
+            <FieldManager 
+                fields={farmData.fields} 
+                setFields={updateFields} 
+                csvTemplates={csvTemplates} 
+                initialTab={fieldManagerTab}
+            />
+        );
       case 'DOCUMENTS':
         return (
             <DocumentManager 

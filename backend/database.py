@@ -15,8 +15,9 @@ db_pass = os.environ.get("DB_PASS", "postgres")
 db_name = os.environ.get("DB_NAME", "agrooptima")
 db_host = os.environ.get("DB_HOST", "localhost")
 db_port = os.environ.get("DB_PORT", "5432")
+instance_connection_name = os.environ.get("INSTANCE_CONNECTION_NAME") # e.g. "project:region:instance"
 
-# Construct Postgres URL
+# Construct Postgres URL for local/TCP
 POSTGRES_URL = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 SQLITE_URL = "sqlite:///./agrooptima.db"
 
@@ -24,15 +25,46 @@ SQLITE_URL = "sqlite:///./agrooptima.db"
 USE_SQLITE = os.environ.get("USE_SQLITE", "False").lower() == "true"
 
 engine = None
+connector = None # Keep reference to prevent GC
 
 if not USE_SQLITE:
     try:
-        print(f"INFO: Attempting to connect to Postgres at {db_host}...")
-        # pool_pre_ping=True helps with dropped connections
-        engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+        if instance_connection_name:
+            print(f"INFO: Detected Cloud SQL Instance: {instance_connection_name}")
+            print(f"INFO: Initializing Cloud SQL Connector for user: {db_user}...")
+            
+            from google.cloud.sql.connector import Connector, IPTypes
+            import pg8000
+
+            # Initialize Connector
+            connector = Connector()
+
+            def getconn():
+                conn = connector.connect(
+                    instance_connection_name,
+                    "pg8000",
+                    user=db_user,
+                    password=db_pass,
+                    db=db_name,
+                    ip_type=IPTypes.PUBLIC  # Uses public IP of Cloud SQL
+                )
+                return conn
+
+            engine = create_engine(
+                "postgresql+pg8000://",
+                creator=getconn,
+                pool_pre_ping=True
+            )
+            print("INFO: Engine created using Cloud SQL Connector.")
+        else:
+            print(f"INFO: Attempting to connect to Postgres via TCP at {db_host}...")
+            # pool_pre_ping=True helps with dropped connections
+            engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+        
         # Test connection immediately
         with engine.connect() as connection:
             print("INFO: Postgres connection successful.")
+
     except Exception as e:
         print(f"WARNING: Postgres connection failed. Reason: {e}")
         engine = None

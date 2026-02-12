@@ -1,9 +1,8 @@
 
-
-import React, { useState, useEffect } from 'react';
-import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy } from 'lucide-react';
-import { CsvTemplate, CsvTemplateType, SubsidyRate } from '../types';
-import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025 } from '../constants';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf } from 'lucide-react';
+import { CsvTemplate, CsvTemplateType, SubsidyRate, CropDefinition } from '../types';
+import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, DEFAULT_CROP_DICTIONARY } from '../constants';
 import { api } from '../services/api';
 
 interface AdminPanelProps {
@@ -21,15 +20,19 @@ interface MappingRow {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate }) => {
-  const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES'>('CSV');
+  const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS'>('CSV');
   
   // CSV State
   const [activeCsvTab, setActiveCsvTab] = useState<CsvTemplateType>('PARCELS');
   const [editingTemplate, setEditingTemplate] = useState<CsvTemplate | null>(null);
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  
+  // Template Form State
   const [formName, setFormName] = useState('');
   const [formSeparator, setFormSeparator] = useState(';');
+  const [formYear, setFormYear] = useState<number>(2026);
   const [mappingRows, setMappingRows] = useState<MappingRow[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Rates State
   const [rates, setRates] = useState<SubsidyRate[]>([]);
@@ -38,11 +41,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const [rateForm, setRateForm] = useState<Partial<SubsidyRate>>({});
   const [selectedRateYear, setSelectedRateYear] = useState<number>(2026);
 
-  const availableRateYears = [2026, 2025, 2024, 2023];
+  // Crops Dictionary State
+  const [crops, setCrops] = useState<CropDefinition[]>([]);
+  const [editingCrop, setEditingCrop] = useState<CropDefinition | null>(null);
+  const [isCreatingCrop, setIsCreatingCrop] = useState(false);
+  const [cropForm, setCropForm] = useState<Partial<CropDefinition>>({});
+
+  const availableYears = [2026, 2025, 2024, 2023];
 
   useEffect(() => {
     if (activeMainTab === 'RATES') {
         fetchRates();
+    } else if (activeMainTab === 'CROPS') {
+        fetchCrops();
     }
   }, [activeMainTab]);
 
@@ -56,6 +67,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
         ];
     }
     setRates(data);
+  };
+
+  const fetchCrops = async () => {
+      let data = await api.getCrops();
+      if (data.length === 0) {
+          data = DEFAULT_CROP_DICTIONARY;
+      }
+      setCrops(data);
   };
 
   // --- CSV LOGIC ---
@@ -77,6 +96,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           usedKeys.add(field.key);
       });
 
+      // Add extra mappings found in the template that are not system fields
       Object.entries(safeMappings).forEach(([key, header]) => {
           if (!usedKeys.has(key)) {
               rows.push({
@@ -97,6 +117,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
     setIsCreatingTemplate(false);
     setFormName(template.name);
     setFormSeparator(template.separator);
+    setFormYear(template.year || 2026);
     setMappingRows(initializeRows(template.type, template.mappings));
   };
 
@@ -105,6 +126,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
     setIsCreatingTemplate(true);
     setFormName('');
     setFormSeparator(';');
+    setFormYear(2026);
     setMappingRows(initializeRows(activeCsvTab, {}));
   };
 
@@ -126,6 +148,55 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       }));
   };
 
+  // --- CSV FILE PARSING LOGIC ---
+  const handleImportTemplateFromCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          const text = evt.target?.result as string;
+          if (!text) return;
+
+          const firstLine = text.split('\n')[0].trim();
+          if (!firstLine) return;
+
+          // Auto-detect separator if not explicitly set by user choice (though we default to semicolon)
+          let detectedSeparator = formSeparator;
+          if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
+              detectedSeparator = ';';
+          } else {
+              detectedSeparator = ',';
+          }
+          setFormSeparator(detectedSeparator);
+
+          // Parse Headers
+          // Handle quotes roughly
+          const headers = firstLine.split(detectedSeparator).map(h => h.trim().replace(/^"|"$/g, ''));
+
+          // Auto-Map Logic
+          // We iterate over current mappingRows (System Fields) and try to find a match in CSV headers
+          const updatedRows = mappingRows.map(row => {
+              if (row.isSystem) {
+                  // Heuristic: Try to find a header that contains the label or key
+                  const match = headers.find(h => 
+                      h.toLowerCase() === row.label.toLowerCase() || 
+                      h.toLowerCase().includes(row.label.toLowerCase()) ||
+                      h.toLowerCase() === row.systemKey.toLowerCase()
+                  );
+                  return match ? { ...row, csvHeader: match } : row;
+              }
+              return row;
+          });
+
+          setMappingRows(updatedRows);
+          alert(`Wczytano ${headers.length} nagłówków. Dopasowano automatycznie: ${updatedRows.filter(r => r.csvHeader).length} pól.`);
+      };
+      reader.readAsText(file);
+      // Reset input
+      if(fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSubmitTemplate = (e: React.FormEvent) => {
     e.preventDefault();
     const newMappings: Record<string, string> = {};
@@ -143,6 +214,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
         id: id,
         name: formName || 'Bez nazwy',
         type: type,
+        year: formYear,
         separator: formSeparator,
         mappings: newMappings
     };
@@ -177,7 +249,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
 
   const handleCloneYear = () => {
       if(window.confirm(`Czy chcesz skopiować stawki z roku ${selectedRateYear - 1} do roku ${selectedRateYear}?`)) {
-         // Mock implementation for UI feedback
          alert("Funkcja klonowania stawek zostanie zaimplementowana po stronie backendu.");
       }
   };
@@ -210,6 +281,55 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           }
       }
   };
+
+  // --- CROPS LOGIC ---
+  const handleEditCrop = (crop: CropDefinition) => {
+      setEditingCrop(crop);
+      setIsCreatingCrop(false);
+      setCropForm(crop);
+  };
+
+  const handleCreateCrop = () => {
+      setEditingCrop(null);
+      setIsCreatingCrop(true);
+      setCropForm({
+          id: `C${Date.now()}`,
+          name: '',
+          type: 'Zboża',
+          isLegume: false,
+          isCatchCrop: false
+      });
+  };
+
+  const handleSaveCrop = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!cropForm.name || !cropForm.id) return;
+
+      const cropToSave = cropForm as CropDefinition;
+      await api.saveCrop(cropToSave);
+
+      setCrops(prev => {
+          const exists = prev.find(c => c.id === cropToSave.id);
+          if (exists) return prev.map(c => c.id === cropToSave.id ? cropToSave : c);
+          return [...prev, cropToSave];
+      });
+      
+      setEditingCrop(null);
+      setIsCreatingCrop(false);
+      setCropForm({});
+  };
+
+  const handleDeleteCrop = async (id: string) => {
+      if (window.confirm("Usunąć uprawę ze słownika?")) {
+          await api.deleteCrop(id);
+          setCrops(prev => prev.filter(c => c.id !== id));
+          if (editingCrop?.id === id) {
+              setEditingCrop(null);
+              setIsCreatingCrop(false);
+          }
+      }
+  };
+
 
   // Filter rates by selected year
   const activeRates = rates.filter(r => r.year === selectedRateYear);
@@ -252,15 +372,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
             }`}
           >
             <Coins size={18} />
-            Stawki i Ekoschematy
+            Stawki i Płatności
+          </button>
+          <button
+            onClick={() => setActiveMainTab('CROPS')}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+                activeMainTab === 'CROPS' 
+                ? 'bg-white text-emerald-700 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Sprout size={18} />
+            Słownik Upraw
           </button>
       </div>
 
       {/* CONTENT: CSV TEMPLATES */}
       {activeMainTab === 'CSV' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left: List */}
-            <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            {/* ... Existing CSV Content ... */}
+             <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex space-x-2 mb-6 border-b border-slate-100 pb-2">
                     <button onClick={() => { setActiveCsvTab('PARCELS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'PARCELS' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500'}`}>Ewidencja Gruntów</button>
                     <button onClick={() => { setActiveCsvTab('CROPS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'CROPS' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500'}`}>Struktura Zasiewów</button>
@@ -270,7 +401,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                         <div key={tpl.id} onClick={() => handleEditTemplate(tpl)} className={`p-4 rounded-lg border cursor-pointer transition-all flex justify-between items-center group ${editingTemplate?.id === tpl.id ? 'bg-emerald-50 border-emerald-500 shadow-sm' : 'bg-white border-slate-200 hover:border-emerald-300'}`}>
                             <div className="flex items-center gap-3">
                                 <FileSpreadsheet className="text-slate-400" size={18}/>
-                                <div><div className="font-semibold text-slate-800 text-sm">{tpl.name}</div><div className="text-xs text-slate-500">Sep: '{tpl.separator}'</div></div>
+                                <div>
+                                    <div className="font-semibold text-slate-800 text-sm">{tpl.name}</div>
+                                    <div className="flex gap-2 text-xs text-slate-500">
+                                        <span className="bg-slate-100 px-1 rounded">Rok: {tpl.year || 2026}</span>
+                                        <span>Sep: '{tpl.separator}'</span>
+                                    </div>
+                                </div>
                             </div>
                             <ChevronRight size={16} className={`text-slate-300 ${editingTemplate?.id === tpl.id ? 'text-emerald-600' : ''}`}/>
                         </div>
@@ -285,6 +422,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
             <div className="lg:col-span-2">
                 {(editingTemplate || isCreatingTemplate) ? (
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                        {/* ... Existing CSV Editor ... */}
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-800">{editingTemplate ? 'Edycja Szablonu' : 'Nowy Szablon'}</h3>
                             <div className="flex gap-2">
@@ -293,27 +431,104 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                             </div>
                         </div>
                         <form onSubmit={handleSubmitTemplate}>
-                            <div className="grid grid-cols-2 gap-4 mb-6">
-                                <div><label className="block text-sm font-medium mb-1">Nazwa</label><input type="text" value={formName} onChange={e => setFormName(e.target.value)} required className="w-full border p-2 rounded-lg" /></div>
-                                <div><label className="block text-sm font-medium mb-1">Separator</label><select value={formSeparator} onChange={e => setFormSeparator(e.target.value)} className="w-full border p-2 rounded-lg"><option value=";">;</option><option value=",">,</option></select></div>
+                            {/* General Settings */}
+                            <div className="grid grid-cols-12 gap-4 mb-6">
+                                <div className="col-span-6">
+                                    <label className="block text-sm font-medium mb-1">Nazwa Szablonu</label>
+                                    <input type="text" value={formName} onChange={e => setFormName(e.target.value)} required className="w-full border p-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="np. Ewidencja 2026" />
+                                </div>
+                                <div className="col-span-3">
+                                    <label className="block text-sm font-medium mb-1">Rok Kampanii</label>
+                                    <select value={formYear} onChange={e => setFormYear(Number(e.target.value))} className="w-full border p-2 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                                        {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-3">
+                                    <label className="block text-sm font-medium mb-1">Separator</label>
+                                    <select value={formSeparator} onChange={e => setFormSeparator(e.target.value)} className="w-full border p-2 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                                        <option value=";">Średnik (;)</option>
+                                        <option value=",">Przecinek (,)</option>
+                                    </select>
+                                </div>
                             </div>
+                            
+                            {/* Mapping Section */}
                             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                                <div className="flex justify-between mb-4"><h4 className="font-semibold text-slate-700">Mapowanie</h4><button type="button" onClick={addCustomRow} className="text-xs bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg"><Plus size={14}/> Dodaj</button></div>
-                                <div className="space-y-2">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h4 className="font-semibold text-slate-700 flex items-center gap-2">
+                                        <RefreshCw size={16} /> Mapowanie Kolumn
+                                    </h4>
+                                    <div className="flex gap-2">
+                                        {/* CSV Import Button */}
+                                        <div className="relative">
+                                            <input 
+                                                type="file" 
+                                                ref={fileInputRef}
+                                                accept=".csv,.txt"
+                                                onChange={handleImportTemplateFromCsv}
+                                                className="hidden"
+                                            />
+                                            <button 
+                                                type="button" 
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="text-xs bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                                            >
+                                                <UploadCloud size={14}/> Wczytaj z pliku
+                                            </button>
+                                        </div>
+                                        <button 
+                                            type="button" 
+                                            onClick={addCustomRow} 
+                                            className="text-xs bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                                        >
+                                            <Plus size={14}/> Dodaj Pole
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
                                     {mappingRows.map((row, i) => (
-                                        <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                                            <div className="col-span-4"><input type="text" value={row.systemKey} onChange={e => updateRow(i, 'systemKey', e.target.value)} className="w-full border rounded p-1 text-sm" placeholder="Klucz systemowy" /></div>
-                                            <div className="col-span-7"><input type="text" value={row.csvHeader} onChange={e => updateRow(i, 'csvHeader', e.target.value)} className="w-full border rounded p-1 text-sm" placeholder="Nagłówek CSV" /></div>
-                                            <div className="col-span-1"><button type="button" onClick={() => removeRow(i)} className="text-slate-400 hover:text-red-500"><X size={16}/></button></div>
+                                        <div key={i} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded border border-slate-200">
+                                            <div className="col-span-4">
+                                                <div className="text-xs text-slate-400 mb-0.5">{row.label || 'Klucz Systemowy'}</div>
+                                                <input 
+                                                    type="text" 
+                                                    value={row.systemKey} 
+                                                    onChange={e => updateRow(i, 'systemKey', e.target.value)} 
+                                                    disabled={row.isSystem}
+                                                    className={`w-full border rounded p-1.5 text-sm font-mono ${row.isSystem ? 'bg-slate-100 text-slate-500' : 'bg-white'}`} 
+                                                    placeholder="Klucz" 
+                                                />
+                                            </div>
+                                            <div className="col-span-7">
+                                                 <div className="text-xs text-slate-400 mb-0.5">Nagłówek w pliku CSV</div>
+                                                 <input 
+                                                    type="text" 
+                                                    value={row.csvHeader} 
+                                                    onChange={e => updateRow(i, 'csvHeader', e.target.value)} 
+                                                    className="w-full border rounded p-1.5 text-sm font-semibold text-slate-700 focus:ring-1 focus:ring-emerald-500 outline-none" 
+                                                    placeholder="Wklej nazwę kolumny..." 
+                                                />
+                                            </div>
+                                            <div className="col-span-1 flex items-end justify-center pb-1">
+                                                {!row.required && (
+                                                    <button type="button" onClick={() => removeRow(i)} className="text-slate-300 hover:text-red-500 transition-colors">
+                                                        <X size={18}/>
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
+                                <div className="mt-2 text-xs text-slate-400 text-center">
+                                    Pola systemowe (zablokowane) są wymagane do poprawnego działania aplikacji.
+                                </div>
                             </div>
-                            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => { setIsCreatingTemplate(false); setEditingTemplate(null); }} className="px-4 py-2 text-slate-500">Anuluj</button><button type="submit" className="bg-emerald-600 text-white px-6 py-2 rounded-lg">Zapisz</button></div>
+                            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => { setIsCreatingTemplate(false); setEditingTemplate(null); }} className="px-4 py-2 text-slate-500">Anuluj</button><button type="submit" className="bg-emerald-600 text-white px-6 py-2 rounded-lg">Zapisz Szablon</button></div>
                         </form>
                     </div>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300 min-h-[400px]"><Settings size={48} className="mb-4 opacity-20"/><p>Wybierz szablon</p></div>
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300 min-h-[400px]"><Settings size={48} className="mb-4 opacity-20"/><p>Wybierz szablon lub utwórz nowy</p></div>
                 )}
             </div>
           </div>
@@ -323,7 +538,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       {activeMainTab === 'RATES' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left: Rates List */}
-              <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[650px]">
+              <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[750px]">
                   
                   {/* Year Selector / Filter */}
                   <div className="mb-4 pb-4 border-b border-slate-100">
@@ -335,19 +550,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                 onChange={(e) => { setSelectedRateYear(Number(e.target.value)); setEditingRate(null); setIsCreatingRate(false); }}
                                 className="w-full appearance-none bg-slate-50 border border-slate-300 text-slate-700 py-2.5 pl-4 pr-10 rounded-lg font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
                             >
-                                {availableRateYears.map(year => (
+                                {availableYears.map(year => (
                                     <option key={year} value={year}>{year}</option>
                                 ))}
                             </select>
                             <Calendar className="absolute right-3 top-2.5 text-slate-400 pointer-events-none" size={18} />
                         </div>
-                        <button 
-                            onClick={handleCloneYear}
-                            title="Kopiuj z poprzedniego roku"
-                            className="bg-slate-100 text-slate-600 hover:bg-slate-200 p-2.5 rounded-lg transition-colors"
-                        >
-                            <Copy size={20} />
-                        </button>
                       </div>
                   </div>
 
@@ -356,27 +564,47 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                       <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{activeRates.length} poz.</span>
                   </h3>
 
-                  <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                      {activeRates.length > 0 ? activeRates.map(rate => (
-                          <div 
-                            key={rate.id}
-                            onClick={() => handleEditRate(rate)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
-                          >
-                              <div>
-                                  <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
-                                  <div className="flex gap-2 text-xs mt-1">
-                                      <span className="bg-slate-100 text-slate-600 px-1.5 rounded">{rate.category}</span>
-                                      <span className="text-emerald-600 font-bold">{rate.rate} {rate.unit}</span>
-                                  </div>
-                              </div>
-                              <ChevronRight size={16} className="text-slate-300"/>
-                          </div>
-                      )) : (
-                          <div className="text-center py-8 text-slate-400 text-sm">
-                              Brak stawek dla roku {selectedRateYear}.<br/>Dodaj nową lub skopiuj.
-                          </div>
-                      )}
+                  <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                      {/* Section: Direct Payments */}
+                      <div>
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Płatności Bezpośrednie</div>
+                        <div className="space-y-2">
+                        {activeRates.filter(r => r.category === 'DOPLATA').map(rate => (
+                            <div 
+                                key={rate.id}
+                                onClick={() => handleEditRate(rate)}
+                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                            >
+                                <div>
+                                    <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
+                                    <div className="text-emerald-600 font-bold text-xs mt-1">{rate.rate} {rate.unit}</div>
+                                </div>
+                            </div>
+                        ))}
+                        </div>
+                      </div>
+
+                      {/* Section: Eco-schemes */}
+                      <div>
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 mt-4">Ekoschematy i Inne</div>
+                        <div className="space-y-2">
+                        {activeRates.filter(r => r.category !== 'DOPLATA').map(rate => (
+                            <div 
+                                key={rate.id}
+                                onClick={() => handleEditRate(rate)}
+                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                            >
+                                <div>
+                                    <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
+                                    <div className="flex gap-2 text-xs mt-1">
+                                        <span className="bg-slate-100 text-slate-600 px-1.5 rounded">{rate.category}</span>
+                                        <span className="text-emerald-600 font-bold">{rate.rate} {rate.unit}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        </div>
+                      </div>
                   </div>
                   <button onClick={handleCreateRate} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Stawkę ({selectedRateYear})</button>
               </div>
@@ -404,9 +632,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                       <Calendar size={16} />
                                       Rok obowiązywania: <span className="font-bold text-slate-800">{rateForm.year}</span>
                                   </div>
-                                  {!editingRate && (
-                                      <span className="text-xs text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold">Nowa pozycja</span>
-                                  )}
                               </div>
 
                               <div>
@@ -471,10 +696,137 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                   ) : (
                       <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300 min-h-[400px]">
                           <Coins size={48} className="mb-4 opacity-20"/>
-                          <p>Wybierz rok i dodaj stawkę</p>
+                          <p>Wybierz stawkę do edycji lub dodaj nową</p>
                       </div>
                   )}
               </div>
+          </div>
+      )}
+
+      {/* CONTENT: CROPS DICTIONARY */}
+      {activeMainTab === 'CROPS' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+               {/* Left: Crops List */}
+               <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[750px]">
+                  <div className="mb-4 pb-4 border-b border-slate-100 flex justify-between items-center">
+                     <h3 className="font-bold text-slate-800">Słownik Roślin</h3>
+                     <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{crops.length} poz.</span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                       {crops.map(crop => (
+                           <div 
+                                key={crop.id}
+                                onClick={() => handleEditCrop(crop)}
+                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingCrop?.id === crop.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-slate-100 rounded text-slate-500">
+                                        <Leaf size={16} />
+                                    </div>
+                                    <div>
+                                        <div className="font-semibold text-slate-800 text-sm">{crop.name}</div>
+                                        <div className="text-xs text-slate-500">{crop.type}</div>
+                                    </div>
+                                </div>
+                                {(crop.isLegume || crop.isCatchCrop) && (
+                                    <div className="flex gap-1">
+                                        {crop.isLegume && <span className="w-2 h-2 rounded-full bg-blue-500" title="Bobowata"></span>}
+                                        {crop.isCatchCrop && <span className="w-2 h-2 rounded-full bg-green-500" title="Międzyplon"></span>}
+                                    </div>
+                                )}
+                           </div>
+                       ))}
+                  </div>
+                  <button onClick={handleCreateCrop} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Roślinę</button>
+               </div>
+
+               {/* Right: Crop Editor */}
+               <div className="lg:col-span-2">
+                    {(editingCrop || isCreatingCrop) ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                             <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <Sprout className="text-emerald-600"/>
+                                    {editingCrop ? 'Edycja Rośliny' : 'Nowa Roślina'}
+                                </h3>
+                                <div className="flex gap-2">
+                                    {editingCrop && (
+                                        <button onClick={() => handleDeleteCrop(editingCrop.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                                    )}
+                                    <button onClick={() => { setIsCreatingCrop(false); setEditingCrop(null); }} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg"><X size={24}/></button>
+                                </div>
+                              </div>
+
+                              <form onSubmit={handleSaveCrop} className="space-y-4">
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Nazwa Uprawy</label>
+                                      <input 
+                                        type="text" 
+                                        required
+                                        value={cropForm.name || ''}
+                                        onChange={e => setCropForm({...cropForm, name: e.target.value})}
+                                        className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                        placeholder="np. Pszenica ozima"
+                                      />
+                                  </div>
+                                  <div>
+                                      <label className="block text-sm font-medium text-slate-700 mb-1">Typ / Grupa</label>
+                                      <select 
+                                        value={cropForm.type || 'Zboża'}
+                                        onChange={e => setCropForm({...cropForm, type: e.target.value})}
+                                        className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                      >
+                                          <option value="Zboża">Zboża</option>
+                                          <option value="Oleiste">Oleiste</option>
+                                          <option value="Bobowate">Bobowate</option>
+                                          <option value="Okopowe">Okopowe</option>
+                                          <option value="Trawy">Trawy / TUZ</option>
+                                          <option value="Pasze">Rośliny pastewne</option>
+                                          <option value="Włókniste">Włókniste</option>
+                                          <option value="Specjalne">Specjalne (Chmiel, Tytoń)</option>
+                                          <option value="Warzywa">Warzywa</option>
+                                          <option value="Inne">Inne</option>
+                                      </select>
+                                  </div>
+                                  
+                                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                      <label className="block text-sm font-medium text-slate-700 mb-3">Cechy dodatkowe (do płatności)</label>
+                                      <div className="space-y-2">
+                                          <label className="flex items-center space-x-2 cursor-pointer">
+                                              <input 
+                                                type="checkbox" 
+                                                checked={cropForm.isLegume || false}
+                                                onChange={e => setCropForm({...cropForm, isLegume: e.target.checked})}
+                                                className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                              />
+                                              <span className="text-sm text-slate-700">Roślina Bobowata (Strączkowa)</span>
+                                          </label>
+                                          <label className="flex items-center space-x-2 cursor-pointer">
+                                              <input 
+                                                type="checkbox" 
+                                                checked={cropForm.isCatchCrop || false}
+                                                onChange={e => setCropForm({...cropForm, isCatchCrop: e.target.checked})}
+                                                className="rounded text-emerald-600 focus:ring-emerald-500" 
+                                              />
+                                              <span className="text-sm text-slate-700">Nadaje się na międzyplon / poplon</span>
+                                          </label>
+                                      </div>
+                                  </div>
+
+                                  <div className="pt-4 flex justify-end gap-3">
+                                      <button type="button" onClick={() => { setIsCreatingCrop(false); setEditingCrop(null); }} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Anuluj</button>
+                                      <button type="submit" className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm font-medium">Zapisz Roślinę</button>
+                                  </div>
+                              </form>
+                        </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300 min-h-[400px]">
+                          <Sprout size={48} className="mb-4 opacity-20"/>
+                          <p>Wybierz roślinę do edycji lub dodaj nową</p>
+                      </div>
+                    )}
+               </div>
           </div>
       )}
     </div>

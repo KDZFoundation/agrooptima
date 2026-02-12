@@ -1,46 +1,70 @@
 
-import React, { useRef, useState } from 'react';
-import { Trash2, MapPin, History, ChevronDown, ChevronUp, Beaker, Leaf, UploadCloud, FileSpreadsheet, Download, AlertCircle, Layers, Sprout, Calendar, Edit2, Save, X, Check, Settings } from 'lucide-react';
-import { Field, CropType, CsvTemplate } from '../types';
+import React, { useRef, useState, useEffect } from 'react';
+import { Layers, Sprout, Calendar, X, AlertCircle, UploadCloud, FileCheck, AlertTriangle } from 'lucide-react';
+import { Field, CropType, CsvTemplate, FieldHistoryEntry, CsvTemplateType } from '../types';
 import { CROP_TYPES } from '../constants';
+import ParcelManager from './ParcelManager';
+import CropManager from './CropManager';
 
 interface FieldManagerProps {
   fields: Field[];
   setFields: React.Dispatch<React.SetStateAction<Field[]>>;
   csvTemplates: CsvTemplate[];
+  initialTab?: 'PARCELS' | 'CROPS';
 }
 
-const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTemplates }) => {
-  const [activeTab, setActiveTab] = useState<'PARCELS' | 'CROPS'>('PARCELS');
+const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTemplates, initialTab = 'PARCELS' }) => {
+  const [activeTab, setActiveTab] = useState<'PARCELS' | 'CROPS'>(initialTab);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
+  
+  // Update tab if initialTab prop changes
+  useEffect(() => {
+      setActiveTab(initialTab);
+  }, [initialTab]);
   
   // Import State
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [importType, setImportType] = useState<CsvTemplateType>('PARCELS');
+  const [importReport, setImportReport] = useState<{success: number, skipped: number, errors: string[]} | null>(null);
   
-  // Editing State
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{
-      name: string;
-      registrationNumber: string;
-      area: string;
-      eligibleArea: string;
-      crop: CropType;
-      ecoSchemes: string;
-  }>({ name: '', registrationNumber: '', area: '', eligibleArea: '', crop: 'Mieszanka', ecoSchemes: '' });
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const availableYears = [2026, 2025, 2024, 2023, 2022, 2021];
 
   // --- HELPER: Parse Polish Numbers ---
-  const parsePolishNumber = (val: string | undefined): number => {
+  const parsePolishNumber = (val: any): number => {
       if (!val) return 0;
-      let cleaned = val.trim();
-      cleaned = cleaned.replace(/\s/g, '');
-      cleaned = cleaned.replace(/,/g, '.');
+      let cleaned = String(val).trim();
+      cleaned = cleaned.replace(/\s/g, ''); // remove spaces
+      cleaned = cleaned.replace(/,/g, '.'); // comma to dot
       const num = parseFloat(cleaned);
       return isNaN(num) ? 0 : num;
+  };
+
+  // --- HELPER: Normalize Crop Name (Fuzzy Match) ---
+  const normalizeCropName = (input: string): string => {
+      if (!input) return 'Nieznana';
+      const lower = input.toLowerCase().trim();
+      
+      // Fuzzy match against known types
+      if (lower.includes('pszenic')) return 'Pszenica';
+      if (lower.includes('rzepak')) return 'Rzepak';
+      if (lower.includes('kukurydz')) return 'Kukurydza';
+      if (lower.includes('burak')) return 'Burak Cukrowy';
+      if (lower.includes('jęczmień') || lower.includes('jeczmien')) return 'Jęczmień';
+      if (lower.includes('żyto') || lower.includes('zyto')) return 'Żyto';
+      if (lower.includes('ziemnia')) return 'Ziemniaki';
+      if (lower.includes('traw') || lower.includes('łąk') || lower.includes('pastwisk') || lower.includes('tuz')) return 'Trawy';
+      if (lower.includes('bobowat') || lower.includes('strączk') || lower.includes('lucern') || lower.includes('koniczyn') || lower.includes('łubin') || lower.includes('groch') || lower.includes('bobik')) return 'Rośliny Bobowate';
+      if (lower.includes('mieszan')) return 'Mieszanka';
+      
+      // If matches exact constant
+      const exact = CROP_TYPES.find(c => c.toLowerCase() === lower);
+      if (exact) return exact;
+
+      // Fallback: Return capitalized raw input if it looks like a name, otherwise Nieznana
+      if (input.trim().length > 2) return input.trim().charAt(0).toUpperCase() + input.trim().slice(1);
+      return 'Nieznana';
   };
 
   // --- HELPER: Robust CSV Split ---
@@ -63,178 +87,45 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
     return res;
   };
 
-  // --- CRUD OPERATIONS ---
+  // --- CSV IMPORTS ---
+  const handleDownloadTemplate = (type: CsvTemplateType) => {
+      // Find the active template or use default headers
+      const template = csvTemplates.find(t => t.type === type);
+      let headers = "";
+      let filename = "";
 
-  const removeField = (id: string) => {
-    if (window.confirm("Czy na pewno chcesz trwale usunąć to pole z ewidencji? Operacja jest nieodwracalna.")) {
-        setFields(prev => prev.filter(f => f.id !== id));
-    }
-  };
-
-  const removeHistoryEntry = (fieldId: string, year: number) => {
-      if (window.confirm(`Czy na pewno chcesz usunąć wpis historyczny z roku ${year}?`)) {
-          setFields(prev => prev.map(f => {
-              if (f.id !== fieldId) return f;
-              const newHistory = f.history ? f.history.filter(h => h.year !== year) : [];
-              return { ...f, history: newHistory };
-          }));
-      }
-  };
-
-  const startEditing = (field: Field) => {
-    setEditingId(field.id);
-    const cropData = getCropDataForYear(field, selectedYear);
-    
-    setEditForm({
-        name: field.name,
-        registrationNumber: field.registrationNumber || '',
-        area: field.area.toString().replace('.', ','), 
-        eligibleArea: field.eligibleArea.toString().replace('.', ','),
-        crop: cropData ? (cropData.crop as CropType) : 'Mieszanka',
-        ecoSchemes: cropData ? cropData.ecoSchemes.join(', ') : ''
-    });
-  };
-
-  const cancelEditing = () => {
-      setEditingId(null);
-  };
-
-  const saveEditing = (id: string) => {
-      setFields(prevFields => prevFields.map(field => {
-          if (field.id !== id) return field;
-
-          const updatedField = { ...field };
-
-          if (activeTab === 'PARCELS') {
-              updatedField.name = editForm.name;
-              updatedField.registrationNumber = editForm.registrationNumber;
-              updatedField.area = parsePolishNumber(editForm.area);
-              updatedField.eligibleArea = parsePolishNumber(editForm.eligibleArea) || updatedField.area;
+      if (template) {
+          // Create headers based on the mapping values (user friendly names)
+          headers = Object.values(template.mappings).join(template.separator) + "\n";
+          filename = `szablon_${type.toLowerCase()}_${template.name.replace(/\s/g, '_')}.csv`;
+      } else {
+          // Fallback if no template selected (though UI restricts this)
+          if (type === 'PARCELS') {
+              headers = "Identyfikator działki;Województwo;Powiat;Gmina;Obręb;Nr działki;Powierzchnia Ha\n";
+              filename = 'szablon_ewidencja_gruntow.csv';
           } else {
-              // CROPS EDITING LOGIC
-              const newEcoSchemes = editForm.ecoSchemes.split(',').map(s => s.trim()).filter(s => s.length > 0);
-              
-              if (selectedYear === 2026) {
-                  updatedField.crop = editForm.crop;
-              } else {
-                  const histIndex = updatedField.history.findIndex(h => h.year === selectedYear);
-                  const newEntry = {
-                      year: selectedYear,
-                      crop: editForm.crop,
-                      appliedEcoSchemes: newEcoSchemes
-                  };
-
-                  if (histIndex >= 0) {
-                      updatedField.history[histIndex] = { ...updatedField.history[histIndex], ...newEntry };
-                  } else {
-                      updatedField.history.push(newEntry);
-                      updatedField.history.sort((a, b) => b.year - a.year);
-                  }
-              }
+              headers = "Nr działki;Uprawa;Ekoschematy\n";
+              filename = 'szablon_struktura_zasiewow.csv';
           }
-          return updatedField;
-      }));
-      setEditingId(null);
-  };
-
-
-  const toggleHistory = (id: string) => {
-      if (expandedFieldId === id) setExpandedFieldId(null);
-      else setExpandedFieldId(id);
-  };
-
-  // Helper to get crop data for the specific selected year
-  const getCropDataForYear = (field: Field, year: number) => {
-      if (year === 2026) {
-          return {
-              crop: field.crop,
-              ecoSchemes: [], 
-              isMain: true
-          };
       }
       
-      const historyEntry = field.history?.find(h => h.year === year);
-      if (historyEntry) {
-          return {
-              crop: historyEntry.crop,
-              ecoSchemes: historyEntry.appliedEcoSchemes,
-              isMain: false
-          };
-      }
-
-      return null;
+      const bom = new Uint8Array([0xEF, 0xBB, 0xBF]); // UTF-8 BOM
+      const blob = new Blob([bom, headers], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
-  // --- CSV IMPORTS ---
-  const handleDownloadTemplate = () => {
-    let headers = "";
-    let filename = "";
-
-    if (activeTab === 'PARCELS') {
-        headers = [
-            "Identyfikator działki ewidencyjnej",
-            "Województwo",
-            "Powiat",
-            "Gmina",
-            "Nazwa obrębu ewidencyjnego",
-            "Nr obrębu ewidencyjnego",
-            "Nr arkusza mapy",
-            "Nr działki ewidencyjnej",
-            "Hektar kwalifikujący się ogółem na działce [ha]",
-            "Pow. gruntów ornych ogółem na działce [ha]",
-            "Uprawa"
-        ].join(';') + "\n";
-        filename = 'szablon_ewidencja_gruntow.csv';
-    } else {
-        headers = [
-            "Oznaczenie Uprawy / działki rolnej",
-            "Oznaczenie Uprawy / działki rolnej ZAL",
-            "Powierzchnia [ha]",
-            "Roślina uprawna",
-            "Lista płatności",
-            "Lista ekoschematów",
-            "Czy niezgłoszona",
-            "Rośliny w mieszance",
-            "Ilość nasion",
-            "Ekologiczna",
-            "Nr działki ewidencyjnej",
-            "Powierzchnia uprawy w granicach działki ewidencyjnej - ha",
-            "Obszar ONW",
-            "Pow. obszaru ONW [ha]",
-            "Nr pakietu/wariantu/opcji - płatność PRSK",
-            "Praktyka dodatkowa - płatność PRSK",
-            "Odmiana drzew owocowych - płatność PRSK",
-            "L. drzew owocowych - płatność PRSK",
-            "Rośliny w międzyplonie - płatność PRSK",
-            "Sposób użytkowania - płatność PRSK",
-            "Odmiana uprawy - płatność PRSK",
-            "Nr pakietu/wariantu/opcji - płatność ZRSK2327",
-            "Praktyka dodatkowa - płatność ZRSK2327",
-            "Odmiana drzew owocowych - płatność ZRSK2327",
-            "L. drzew owocowych - płatność ZRSK2327",
-            "Sposób użytkowania - płatność ZRSK2327",
-            "Odmiana uprawy - płatność ZRSK2327",
-            "Nr pakietu/wariantu/opcji - płatność RE2327",
-            "Uwagi"
-        ].join(';') + "\n";
-        filename = 'szablon_struktura_zasiewow.csv';
-    }
-    
-    const content = headers;
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    const blob = new Blob([bom, content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportClick = () => {
-      const defaultTemplate = csvTemplates.find(t => t.type === activeTab);
-      if (defaultTemplate) setSelectedTemplateId(defaultTemplate.id);
+  const handleImportClick = (type: CsvTemplateType) => {
+      setImportType(type);
+      setImportReport(null);
+      // Auto-select first available template for this type
+      const defaultTemplate = csvTemplates.find(t => t.type === type);
+      setSelectedTemplateId(defaultTemplate ? defaultTemplate.id : '');
       setShowImportModal(true);
   };
 
@@ -245,96 +136,332 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
     const selectedTemplate = csvTemplates.find(t => t.id === selectedTemplateId);
     if (!selectedTemplate) {
         alert("Wybierz szablon importu.");
+        if (fileInputRef.current) fileInputRef.current.value = ''; 
         return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
-        const text = event.target?.result as string;
+        let text = event.target?.result as string;
         if (!text) { alert("Plik jest pusty."); return; }
 
         try {
+            // Remove BOM if present
+            if (text.charCodeAt(0) === 0xFEFF) {
+                text = text.slice(1);
+            }
+
+            // AUTO-DETECT SEPARATOR
+            const firstLine = text.split('\n')[0];
+            let separator = selectedTemplate.separator;
+            if (firstLine) {
+                const semicolons = (firstLine.match(/;/g) || []).length;
+                const commas = (firstLine.match(/,/g) || []).length;
+                if (semicolons > commas) separator = ';';
+                else if (commas > semicolons) separator = ',';
+            }
+
             const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim().length > 0);
-            const newFields: Field[] = [];
             
-            if (lines.length < 1) { alert("Plik nie zawiera danych."); return; }
+            if (lines.length < 2) { 
+                alert("Plik nie zawiera danych (tylko nagłówek lub pusty)."); 
+                return; 
+            }
             
-            const firstLine = lines[0];
-            const separator = selectedTemplate.separator;
-            const fileHeaders = splitCSV(firstLine, separator).map(h => h.trim().toLowerCase());
+            const fileHeaders = splitCSV(lines[0], separator).map(h => h.trim());
             
-            const mapIdx: Record<string, number> = {};
-            Object.entries(selectedTemplate.mappings).forEach(([key, csvHeader]) => {
-                const idx = fileHeaders.findIndex(h => h.includes((csvHeader as string).toLowerCase()));
-                if (idx !== -1) mapIdx[key] = idx;
+            // --- MAPPING STRATEGY ---
+            // We need to map System Keys -> Column Index in CSV
+            const columnMap: Record<string, number> = {};
+            const missingRequiredHeaders: string[] = [];
+
+            // Helper to clean header strings for comparison: lowercase, remove quotes, NORMALIZE SPACES
+            const cleanHeader = (h: string) => h.toLowerCase().replace(/['"]/g, '').replace(/\s+/g, ' ').trim();
+
+            Object.entries(selectedTemplate.mappings).forEach(([systemKey, templateHeaderName]) => {
+                const searchName = cleanHeader(String(templateHeaderName));
+                
+                // Find index where header matches (exact or contains)
+                // Using cleanHeader on both sides ensures "Oznaczenie Uprawy  / działki" matches "oznaczenie uprawy / działki"
+                const index = fileHeaders.findIndex(h => {
+                    const cleanedH = cleanHeader(h);
+                    return cleanedH === searchName || cleanedH.includes(searchName);
+                });
+                
+                if (index !== -1) {
+                    columnMap[systemKey] = index;
+                } else {
+                    // Check strict requirements
+                    if (importType === 'PARCELS' && (systemKey === 'name' || systemKey === 'area')) missingRequiredHeaders.push(String(templateHeaderName));
+                    if (importType === 'CROPS' && (systemKey === 'registrationNumber' || systemKey === 'crop')) missingRequiredHeaders.push(String(templateHeaderName));
+                }
             });
 
+            if (missingRequiredHeaders.length > 0) {
+                alert(`Błąd struktury pliku. Nie znaleziono wymaganych kolumn w nagłówku pliku:\n\n${missingRequiredHeaders.join(', ')}\n\nSprawdź czy plik pasuje do wybranego szablonu: "${selectedTemplate.name}".`);
+                return;
+            }
+
+            // --- PROCESSING ---
+            const report = { success: 0, skipped: 0, errors: [] as string[] };
+            
+            // Helper to get value from row based on system key
+            const getVal = (rowCols: string[], key: string): string => {
+                const idx = columnMap[key];
+                if (idx !== undefined && rowCols[idx] !== undefined) return rowCols[idx];
+                return '';
+            };
+
+            const processedFields: Field[] = [];
+            // Updated to store optional area for creation
+            const processedHistories: { regNum: string, entry: FieldHistoryEntry, area: number }[] = [];
+
+            // Iterate Data Rows
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
                 const cols = splitCSV(line, separator);
+                
+                // Skip empty lines
                 if (cols.length < 2) continue;
 
-                const getVal = (key: string): string => mapIdx[key] !== undefined ? cols[mapIdx[key]] : '';
+                // ---------------------------
+                // MODE: PARCELS (Ewidencja)
+                // ---------------------------
+                if (importType === 'PARCELS') {
+                    const name = getVal(cols, 'name');
+                    const reg = getVal(cols, 'registrationNumber');
+                    const areaStr = getVal(cols, 'area');
+                    
+                    if (!areaStr || parsePolishNumber(areaStr) <= 0) {
+                        report.skipped++;
+                        continue;
+                    }
 
-                if (activeTab === 'PARCELS') {
-                    const name = getVal('name') || `Działka ${i}`;
-                    const reg = getVal('registrationNumber') || '';
-                    const areaStr = getVal('area');
-                    const eligibleStr = getVal('eligibleArea');
-                    const cropStr = getVal('crop');
+                    const finalName = name || (reg ? `Działka ${reg}` : `Działka ${i}`);
+                    const finalReg = reg || `T_${i}`; // Temporary ID if missing reg
 
-                    const area = parsePolishNumber(areaStr);
-                    if (area === 0 && (!areaStr || !/[0-9]/.test(areaStr))) continue;
-
-                    let eligibleArea = parsePolishNumber(eligibleStr);
-                    if (eligibleArea === 0 && (!eligibleStr || eligibleStr.trim() === '')) eligibleArea = area;
-
-                    const matchedCrop = CROP_TYPES.find(c => c.toLowerCase() === cropStr.toLowerCase()) || 'Mieszanka';
-
-                    newFields.push({
+                    processedFields.push({
                         id: Math.random().toString(36).substr(2, 9),
-                        name: name,
-                        registrationNumber: reg,
-                        area,
-                        eligibleArea,
-                        crop: matchedCrop as CropType,
-                        history: []
+                        name: finalName,
+                        registrationNumber: finalReg,
+                        area: parsePolishNumber(areaStr),
+                        eligibleArea: parsePolishNumber(getVal(cols, 'eligibleArea')) || parsePolishNumber(areaStr),
+                        crop: 'Nieznana', // Parcels import does NOT set crop
+                        history: [], // History initialized empty, filled during merge
+                        // Location data
+                        voivodeship: getVal(cols, 'voivodeship'),
+                        district: getVal(cols, 'district'),
+                        commune: getVal(cols, 'commune'),
+                        precinctName: getVal(cols, 'precinctName'),
+                        precinctNumber: getVal(cols, 'precinctNumber'),
+                        mapSheet: getVal(cols, 'mapSheet'),
                     });
                 } 
-                else {
-                    const reg = getVal('registrationNumber');
-                    const cropStr = getVal('crop');
-                    const areaStr = getVal('area');
-
-                    if (reg) {
-                         const area = parsePolishNumber(areaStr);
-                         const matchedCrop = CROP_TYPES.find(c => c.toLowerCase() === cropStr.toLowerCase()) || 'Mieszanka';
-                         
-                         newFields.push({
-                            id: Math.random().toString(36).substr(2, 9),
-                            name: `Działka ${reg}`,
-                            registrationNumber: reg,
-                            area: area > 0 ? area : 1.0,
-                            eligibleArea: area > 0 ? area : 1.0,
-                            crop: matchedCrop as CropType,
-                            history: []
-                        });
+                
+                // ---------------------------
+                // MODE: CROPS (Struktura)
+                // ---------------------------
+                else if (importType === 'CROPS') {
+                    const reg = getVal(cols, 'registrationNumber');
+                    const cropRaw = getVal(cols, 'crop');
+                    
+                    // Allow import if at least reg number is present, even if crop is empty (treat as Nieznana)
+                    if (!reg) {
+                        report.skipped++;
+                        continue;
                     }
+
+                    // Strict matching requires Registration Number
+                    const normalizedCrop = normalizeCropName(cropRaw);
+                    const ecoSchemesStr = getVal(cols, 'ecoSchemes');
+                    
+                    // Attempt to get area from 'area' or 'specificArea' (common in ARiMR exports)
+                    const areaStr = getVal(cols, 'area'); 
+                    const specificAreaStr = getVal(cols, 'specificArea');
+                    const finalArea = parsePolishNumber(areaStr) || parsePolishNumber(specificAreaStr);
+
+                    const historyEntry: FieldHistoryEntry = {
+                        year: selectedTemplate.year || selectedYear,
+                        crop: normalizedCrop as CropType,
+                        appliedEcoSchemes: ecoSchemesStr ? ecoSchemesStr.split(',').map(s=>s.trim()).filter(s=>s) : [],
+                        // Extended data
+                        designation: getVal(cols, 'designation'),
+                        designationZal: getVal(cols, 'designationZal'),
+                        paymentList: getVal(cols, 'paymentList'),
+                        isUnreported: getVal(cols, 'isUnreported'),
+                        plantMix: getVal(cols, 'plantMix'),
+                        seedQuantity: getVal(cols, 'seedQuantity'),
+                        organic: getVal(cols, 'organic'),
+                        onwType: getVal(cols, 'onwType'),
+                        onwArea: parsePolishNumber(getVal(cols, 'onwArea')),
+                        
+                        // PRSK
+                        prskPackage: getVal(cols, 'prskPackage'),
+                        prskPractice: getVal(cols, 'prskPractice'),
+                        prskFruitTreeVariety: getVal(cols, 'prskFruitTreeVariety'),
+                        prskFruitTreeCount: parsePolishNumber(getVal(cols, 'prskFruitTreeCount')),
+                        prskIntercropPlant: getVal(cols, 'prskIntercropPlant'),
+                        prskUsage: getVal(cols, 'prskUsage'),
+                        prskVariety: getVal(cols, 'prskVariety'),
+
+                        // ZRSK
+                        zrskPackage: getVal(cols, 'zrskPackage'),
+                        zrskPractice: getVal(cols, 'zrskPractice'),
+                        zrskFruitTreeVariety: getVal(cols, 'zrskFruitTreeVariety'),
+                        zrskFruitTreeCount: parsePolishNumber(getVal(cols, 'zrskFruitTreeCount')),
+                        zrskUsage: getVal(cols, 'zrskUsage'),
+                        zrskVariety: getVal(cols, 'zrskVariety'),
+
+                        // RE
+                        rePackage: getVal(cols, 'rePackage'),
+                        
+                        notes: getVal(cols, 'notes'),
+                    };
+
+                    processedHistories.push({ 
+                        regNum: reg, 
+                        entry: historyEntry,
+                        area: finalArea
+                    });
                 }
             }
 
-            if (newFields.length > 0) {
-                setFields(prev => [...prev, ...newFields]);
-                alert(`Pomyślnie zaimportowano ${newFields.length} pozycji.`);
-                setShowImportModal(false);
-            } else {
-                alert("Nie udało się zidentyfikować danych. Sprawdź czy wybrany szablon pasuje do pliku.");
-            }
+            // --- APPLY CHANGES ---
+            setFields(prevFields => {
+                let newFields = [...prevFields];
+
+                if (importType === 'PARCELS') {
+                    // PARCELS Strategy: Update existing by RegNum, or Add New.
+                    // This logic remains tied to strict Registration Number matching.
+                    // IMPORTANT: We also ensure the field has a history entry for the import year to mark it as active.
+                    const importYear = selectedTemplate.year || selectedYear;
+
+                    processedFields.forEach(newItem => {
+                        const existingIdx = newFields.findIndex(f => 
+                            f.registrationNumber && newItem.registrationNumber &&
+                            f.registrationNumber.replace(/\s/g,'').toLowerCase() === newItem.registrationNumber.replace(/\s/g,'').toLowerCase()
+                        );
+
+                        if (existingIdx >= 0) {
+                            // Update structure, KEEP history
+                            const field = newFields[existingIdx];
+                            const updatedHistory = [...field.history];
+                            
+                            // Ensure history entry for importYear exists so it shows up in filtered view
+                            if (!updatedHistory.find(h => h.year === importYear)) {
+                                updatedHistory.push({
+                                    year: importYear,
+                                    crop: 'Nieznana',
+                                    appliedEcoSchemes: []
+                                });
+                                updatedHistory.sort((a, b) => b.year - a.year);
+                            }
+
+                            newFields[existingIdx] = {
+                                ...newFields[existingIdx],
+                                name: newItem.name,
+                                area: newItem.area,
+                                eligibleArea: newItem.eligibleArea,
+                                voivodeship: newItem.voivodeship,
+                                district: newItem.district,
+                                commune: newItem.commune,
+                                precinctName: newItem.precinctName,
+                                precinctNumber: newItem.precinctNumber,
+                                mapSheet: newItem.mapSheet,
+                                history: updatedHistory,
+                            };
+                            report.success++;
+                        } else {
+                            // Add new
+                            // Initialize with history entry for this year
+                            newItem.history = [{
+                                year: importYear,
+                                crop: 'Nieznana',
+                                appliedEcoSchemes: []
+                            }];
+                            newFields.push(newItem);
+                            report.success++;
+                        }
+                    });
+                } else {
+                    // CROPS Strategy: DECOUPLED FROM REGISTRY
+                    // We treat the import as authoritative for agricultural parcels (Działki Rolne).
+                    // We match based on Registration Number AND Designation to support multiple crops (A, B, C) on one physical parcel.
+                    
+                    processedHistories.forEach(({ regNum, entry, area }) => {
+                        // Determine a unique identifier for this crop/parcel combination
+                        // If designation exists (A, B, C), we use it to distinguish.
+                        const designation = entry.designation || entry.designationZal || '';
+                        
+                        // We construct a specific name suffix to look for, e.g., " - A"
+                        // This allows us to map to existing "Split" fields if we already imported them.
+                        const nameSuffix = designation ? ` - ${designation}` : '';
+
+                        const existingIdx = newFields.findIndex(f => 
+                            f.registrationNumber && regNum &&
+                            f.registrationNumber.replace(/\s/g,'').toLowerCase() === regNum.replace(/\s/g,'').toLowerCase() &&
+                            // CRITICAL: If designation exists, we ONLY match fields that have it in name (created by previous import)
+                            // If designation is empty, we match fields without extra suffix OR we just create new to be safe?
+                            // We'll try to match exact logic to prevent duplicates on re-import.
+                            (designation ? f.name.endsWith(nameSuffix) : !f.name.includes(' - '))
+                        );
+
+                        if (existingIdx >= 0) {
+                            // Update existing Agricultural Parcel
+                            const field = newFields[existingIdx];
+                            const updatedHistory = [...field.history];
+                            
+                            const histIdx = updatedHistory.findIndex(h => h.year === entry.year);
+                            if (histIdx >= 0) {
+                                updatedHistory[histIdx] = entry; // Overwrite
+                            } else {
+                                updatedHistory.push(entry);
+                            }
+                            updatedHistory.sort((a, b) => b.year - a.year);
+
+                            // Always update main crop if this is the active year import
+                            const isPlanYear = entry.year === 2026; // Or logic to check against selected template year
+                            
+                            newFields[existingIdx] = {
+                                ...field,
+                                history: updatedHistory,
+                                crop: isPlanYear ? entry.crop : field.crop,
+                                area: area > 0 ? area : field.area // Update area if provided in crop file (often specific to the crop part)
+                            };
+                            report.success++;
+                        } else {
+                            // Create NEW Agricultural Parcel (Działka Rolna)
+                            // This effectively splits the physical parcel into parts A, B, C in the UI list.
+                            const isPlanYear = entry.year === 2026;
+                            
+                            // Construct Name: "Działka 123/4 - A"
+                            const finalName = `Działka ${regNum}${nameSuffix}`;
+
+                            newFields.push({
+                                id: Math.random().toString(36).substr(2, 9),
+                                name: finalName,
+                                registrationNumber: regNum,
+                                area: area || 0, // This is the area of the CROP part (e.g. 5ha out of 10ha)
+                                eligibleArea: area || 0,
+                                crop: isPlanYear ? entry.crop : 'Nieznana',
+                                history: [entry],
+                            });
+                            report.success++;
+                        }
+                    });
+                }
+
+                return newFields;
+            });
+
+            setImportReport(report);
+
         } catch (error) {
             console.error(error);
-            alert("Błąd przetwarzania pliku CSV.");
+            alert("Krytyczny błąd przetwarzania pliku CSV.");
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
-        if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsText(file);
   };
@@ -356,7 +483,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                  <div className="relative">
                     <select 
                         value={selectedYear}
-                        onChange={(e) => { setSelectedYear(Number(e.target.value)); setEditingId(null); }}
+                        onChange={(e) => { setSelectedYear(Number(e.target.value)); }}
                         className="appearance-none bg-white border border-slate-300 text-slate-700 py-1.5 pl-3 pr-8 rounded-md text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                     >
                         {availableYears.map(year => (
@@ -366,29 +493,13 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                     <Calendar className="absolute right-2 top-1.5 text-slate-400 pointer-events-none" size={16} />
                  </div>
             </div>
-
-            <div className="flex gap-2">
-                <button 
-                    onClick={handleDownloadTemplate}
-                    className="text-slate-500 hover:text-emerald-600 px-3 py-2 text-sm font-medium transition-colors flex items-center gap-1"
-                >
-                    <Download size={16} /> Szablon Bazowy
-                </button>
-                <button 
-                    onClick={handleImportClick}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors shadow-sm text-sm font-semibold"
-                >
-                    <UploadCloud size={18} />
-                    <span>Importuj Ewidencję</span>
-                </button>
-            </div>
         </div>
       </div>
 
       {/* TABS */}
       <div className="flex space-x-1 bg-slate-100 p-1 rounded-xl w-fit">
           <button
-            onClick={() => { setActiveTab('PARCELS'); setEditingId(null); }}
+            onClick={() => { setActiveTab('PARCELS'); }}
             className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === 'PARCELS' 
                 ? 'bg-white text-emerald-700 shadow-sm' 
@@ -399,7 +510,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             Ewidencja Gruntów ({selectedYear})
           </button>
           <button
-            onClick={() => { setActiveTab('CROPS'); setEditingId(null); }}
+            onClick={() => { setActiveTab('CROPS'); }}
             className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === 'CROPS' 
                 ? 'bg-white text-emerald-700 shadow-sm' 
@@ -411,266 +522,24 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
           </button>
       </div>
 
-      {/* TABLE CONTENT */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="p-4 font-semibold text-slate-600">Identyfikator działki ewidencyjnej</th>
-              <th className="p-4 font-semibold text-slate-600">Nr Ewidencyjny</th>
-              <th className="p-4 font-semibold text-slate-600">Pow. Orna Ogółem</th>
-              
-              {activeTab === 'PARCELS' ? (
-                  <>
-                    <th className="p-4 font-semibold text-slate-600">Pow. Kwalifikowana ({selectedYear})</th>
-                    <th className="p-4 font-semibold text-slate-600 text-right">Akcje</th>
-                  </>
-              ) : (
-                  <>
-                    <th className="p-4 font-semibold text-slate-600">Uprawa ({selectedYear})</th>
-                    <th className="p-4 font-semibold text-slate-600">Ekoschematy</th>
-                    <th className="p-4 font-semibold text-slate-600 text-right">Akcje</th>
-                  </>
-              )}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {fields.map(field => {
-                const cropData = getCropDataForYear(field, selectedYear);
-                const isEditing = editingId === field.id;
-
-                return (
-                <React.Fragment key={field.id}>
-                  <tr className={`transition-colors ${isEditing ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
-                    
-                    {/* NAME */}
-                    <td className="p-4">
-                      <div className="flex items-center space-x-3">
-                        <div className={`p-2 rounded-lg ${activeTab === 'PARCELS' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                          {activeTab === 'PARCELS' ? <MapPin size={18} /> : <Sprout size={18} />}
-                        </div>
-                        {isEditing && activeTab === 'PARCELS' ? (
-                            <input 
-                                type="text"
-                                value={editForm.name}
-                                onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                                className="border border-amber-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                        ) : (
-                            <span className="font-medium text-slate-900">{field.name}</span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* REG NUMBER */}
-                    <td className="p-4 text-slate-500 font-mono text-sm">
-                        {isEditing && activeTab === 'PARCELS' ? (
-                            <input 
-                                type="text"
-                                value={editForm.registrationNumber}
-                                onChange={(e) => setEditForm({...editForm, registrationNumber: e.target.value})}
-                                className="border border-amber-300 rounded px-2 py-1 text-sm w-24 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                        ) : (
-                            field.registrationNumber || '-'
-                        )}
-                    </td>
-
-                    {/* AREA (TOTAL) */}
-                    <td className="p-4 text-slate-700 font-semibold">
-                        {isEditing && activeTab === 'PARCELS' ? (
-                            <input 
-                                type="text"
-                                value={editForm.area}
-                                onChange={(e) => setEditForm({...editForm, area: e.target.value})}
-                                className="border border-amber-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                        ) : (
-                            `${field.area.toFixed(2)} ha`
-                        )}
-                    </td>
-
-                    {/* DYNAMIC COLUMNS */}
-                    {activeTab === 'PARCELS' ? (
-                        <>
-                            {/* ELIGIBLE AREA */}
-                            <td className="p-4 text-slate-600">
-                                {isEditing ? (
-                                    <input 
-                                        type="text"
-                                        value={editForm.eligibleArea}
-                                        onChange={(e) => setEditForm({...editForm, eligibleArea: e.target.value})}
-                                        className="border border-amber-300 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                    />
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <span>{field.eligibleArea.toFixed(2)} ha</span>
-                                        {field.eligibleArea < field.area && (
-                                            <span title="Powierzchnia kwalifikowana mniejsza od całkowitej" className="flex items-center">
-                                                <AlertCircle size={14} className="text-amber-500" />
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
-                            </td>
-                            <td className="p-4 text-right">
-                                {isEditing ? (
-                                    <div className="flex justify-end space-x-2">
-                                        <button onClick={() => saveEditing(field.id)} className="p-2 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors" title="Zapisz"><Save size={18} /></button>
-                                        <button onClick={cancelEditing} className="p-2 text-slate-500 hover:bg-slate-200 rounded-lg transition-colors" title="Anuluj"><X size={18} /></button>
-                                    </div>
-                                ) : (
-                                    <div className="flex justify-end space-x-2">
-                                        <button onClick={() => startEditing(field)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edytuj"><Edit2 size={18} /></button>
-                                        <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Usuń działkę"><Trash2 size={18} /></button>
-                                    </div>
-                                )}
-                            </td>
-                        </>
-                    ) : (
-                        <>
-                            {/* CROPS & ECOSCHEMES COLUMNS */}
-                            <td className="p-4">
-                                {isEditing ? (
-                                    <select
-                                        value={editForm.crop}
-                                        onChange={(e) => setEditForm({...editForm, crop: e.target.value as CropType})}
-                                        className="border border-amber-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                    >
-                                        {CROP_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                ) : (
-                                    cropData ? (
-                                        <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium border border-blue-100">
-                                            {cropData.crop}
-                                        </span>
-                                    ) : (
-                                        <span className="text-slate-400 italic text-sm">Brak uprawy</span>
-                                    )
-                                )}
-                            </td>
-                            <td className="p-4">
-                                {isEditing ? (
-                                     selectedYear === 2026 ? (
-                                        <span className="text-xs text-slate-400 italic">Generowane w Optymalizacji</span>
-                                     ) : (
-                                        <input 
-                                            type="text"
-                                            value={editForm.ecoSchemes}
-                                            onChange={(e) => setEditForm({...editForm, ecoSchemes: e.target.value})}
-                                            placeholder="np. E_IPR, E_WOD"
-                                            className="border border-amber-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                        />
-                                     )
-                                ) : (
-                                    cropData && cropData.ecoSchemes && cropData.ecoSchemes.length > 0 ? (
-                                        <div className="flex gap-1 flex-wrap max-w-[150px]">
-                                            {cropData.ecoSchemes.map(es => (
-                                                <span key={es} className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100">{es}</span>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <span className="text-slate-300">-</span>
-                                    )
-                                )}
-                            </td>
-                            <td className="p-4 text-right">
-                                {isEditing ? (
-                                     <div className="flex justify-end space-x-2">
-                                        <button onClick={() => saveEditing(field.id)} className="p-2 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors" title="Zapisz"><Save size={18} /></button>
-                                        <button onClick={cancelEditing} className="p-2 text-slate-500 hover:bg-slate-200 rounded-lg transition-colors" title="Anuluj"><X size={18} /></button>
-                                    </div>
-                                ) : (
-                                    <div className="flex justify-end space-x-2">
-                                        <button onClick={() => startEditing(field)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edytuj Uprawę"><Edit2 size={18} /></button>
-                                        <button onClick={() => toggleHistory(field.id)} className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors inline-flex items-center space-x-1" title="Historia">
-                                            <History size={16} />
-                                            {expandedFieldId === field.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-                                        </button>
-                                        <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Usuń działkę"><Trash2 size={18} /></button>
-                                    </div>
-                                )}
-                            </td>
-                        </>
-                    )}
-                  </tr>
-                  
-                  {expandedFieldId === field.id && !isEditing && (
-                      <tr className="bg-slate-50/50">
-                          <td colSpan={6} className="p-4">
-                              <div className="bg-white border border-slate-200 rounded-lg p-4 ml-8">
-                                  <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                                      <History size={16} className="text-emerald-600"/>
-                                      Pełna Historia Agrotechniczna (2021-2025)
-                                  </h4>
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="text-xs text-slate-500 bg-slate-100 uppercase">
-                                            <tr>
-                                                <th className="p-2 text-left rounded-l-md">Rok</th>
-                                                <th className="p-2 text-left">Uprawa</th>
-                                                <th className="p-2 text-left">Ekoschematy</th>
-                                                <th className="p-2 text-left">Wapnowanie</th>
-                                                <th className="p-2 text-left">pH</th>
-                                                <th className="p-2 text-right rounded-r-md">Akcje</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {field.history?.map((hist, idx) => (
-                                                <tr key={idx} className={hist.year === selectedYear ? "bg-emerald-50" : ""}>
-                                                    <td className="p-2 font-medium text-slate-700">{hist.year}</td>
-                                                    <td className="p-2 text-slate-600">{hist.crop}</td>
-                                                    <td className="p-2">
-                                                        <div className="flex gap-1 flex-wrap">
-                                                            {hist.appliedEcoSchemes.map(eco => (
-                                                                <span key={eco} className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-100">{eco}</span>
-                                                            ))}
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-2 text-slate-600">
-                                                        {hist.limingDate ? <div className="flex items-center gap-1 text-blue-600"><Beaker size={12}/> {hist.limingDate}</div> : '-'}
-                                                    </td>
-                                                    <td className="p-2 text-slate-600">
-                                                        {hist.soilPh ? <div className="flex items-center gap-1"><Leaf size={12} className={hist.soilPh < 5 ? 'text-red-500' : 'text-green-500'}/> {hist.soilPh}</div> : '-'}
-                                                    </td>
-                                                    <td className="p-2 text-right">
-                                                        <button 
-                                                            onClick={() => removeHistoryEntry(field.id, hist.year)}
-                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                                                            title="Usuń wpis historyczny"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                            {(!field.history || field.history.length === 0) && (
-                                                <tr><td colSpan={6} className="p-2 text-center text-slate-400 italic">Brak wpisów historycznych</td></tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                              </div>
-                          </td>
-                      </tr>
-                  )}
-                </React.Fragment>
-            )})}
-            
-            {fields.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-12 text-center">
-                  <div className="flex flex-col items-center justify-center">
-                    <FileSpreadsheet size={48} className="text-slate-300 mb-4" />
-                    <h3 className="text-lg font-medium text-slate-700 mb-2">Brak zdefiniowanych działek</h3>
-                    <p className="text-slate-500 max-w-md mx-auto mb-6">Lista działek jest pusta. Pobierz szablon CSV i zaimportuj dane.</p>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* CONTENT (Render Sub-Component) */}
+      {activeTab === 'PARCELS' ? (
+          <ParcelManager 
+            fields={fields} 
+            selectedYear={selectedYear}
+            onUpdateFields={(updated) => setFields(updated)}
+            onImport={() => handleImportClick('PARCELS')}
+            onDownload={() => handleDownloadTemplate('PARCELS')}
+          />
+      ) : (
+          <CropManager 
+            fields={fields} 
+            selectedYear={selectedYear} 
+            onUpdateFields={(updated) => setFields(updated)}
+            onImport={() => handleImportClick('CROPS')}
+            onDownload={() => handleDownloadTemplate('CROPS')}
+          />
+      )}
 
       {/* IMPORT MODAL */}
       {showImportModal && (
@@ -679,7 +548,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative z-10 animate-in fade-in zoom-in-95 duration-200">
                   <div className="flex justify-between items-center p-5 border-b border-slate-100">
                       <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                          <UploadCloud className="text-emerald-600"/> Import z CSV
+                          <UploadCloud className="text-emerald-600"/> Import CSV: {importType === 'PARCELS' ? 'Ewidencja Gruntów' : 'Struktura Zasiewów'}
                       </h3>
                       <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600">
                           <X size={24} />
@@ -687,46 +556,110 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                   </div>
                   
                   <div className="p-6 space-y-4">
-                      <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Wybierz Szablon Importu</label>
-                          <select 
-                            value={selectedTemplateId}
-                            onChange={(e) => setSelectedTemplateId(e.target.value)}
-                            className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          >
-                              <option value="">-- Wybierz szablon --</option>
-                              {csvTemplates.filter(t => t.type === activeTab).map(t => (
-                                  <option key={t.id} value={t.id}>{t.name} (sep: '{t.separator}')</option>
-                              ))}
-                          </select>
-                      </div>
+                      {csvTemplates.filter(t => t.type === importType).length === 0 ? (
+                           <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-amber-800 text-sm flex gap-3 items-start">
+                              <AlertCircle className="flex-shrink-0 mt-0.5" size={18} />
+                              <div>
+                                  <strong>Brak szablonów dla tej kategorii.</strong>
+                                  <p className="mt-1">Przejdź do <strong>Panelu Administratora</strong>, aby zdefiniować mapowanie kolumn CSV.</p>
+                              </div>
+                           </div>
+                      ) : (
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">Wybierz Szablon Importu</label>
+                              <select 
+                                value={selectedTemplateId}
+                                onChange={(e) => { setSelectedTemplateId(e.target.value); setImportReport(null); }}
+                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                              >
+                                  <option value="">-- Wybierz szablon --</option>
+                                  {csvTemplates.filter(t => t.type === importType).map(t => (
+                                      <option key={t.id} value={t.id}>{t.name} (Rok: {t.year || 'Brak'}, sep: '{t.separator}')</option>
+                                  ))}
+                              </select>
+                          </div>
+                      )}
 
-                      <div className="pt-2">
-                          <input 
-                              type="file" 
-                              ref={fileInputRef}
-                              accept=".csv,.txt"
-                              className="hidden"
-                              onChange={handleFileUpload}
-                          />
-                          <button 
-                              onClick={() => fileInputRef.current?.click()}
-                              disabled={!selectedTemplateId}
-                              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
-                                  !selectedTemplateId 
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                  : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                              }`}
-                          >
-                              <UploadCloud size={18} />
-                              Wybierz Plik i Importuj
-                          </button>
-                      </div>
+                      {!importReport ? (
+                          <div className="pt-2">
+                              <input 
+                                  type="file" 
+                                  ref={fileInputRef}
+                                  accept=".csv,.txt"
+                                  className="hidden"
+                                  onChange={handleFileUpload}
+                              />
+                              <button 
+                                  onClick={() => {
+                                      if (!selectedTemplateId) {
+                                           alert("Musisz wybrać szablon.");
+                                           return;
+                                      }
+                                      // Explicit reset before click to allow same file selection
+                                      if (fileInputRef.current) fileInputRef.current.value = '';
+                                      fileInputRef.current?.click();
+                                  }}
+                                  className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-all ${
+                                      !selectedTemplateId 
+                                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                      : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
+                                  }`}
+                              >
+                                  <UploadCloud size={18} />
+                                  Wybierz Plik i Importuj
+                              </button>
+                          </div>
+                      ) : (
+                          <div className="animate-in fade-in zoom-in-95">
+                              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                  <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                      <FileCheck size={18} className="text-emerald-600"/> Raport Importu
+                                  </h4>
+                                  <div className="text-sm space-y-1">
+                                      <div className="flex justify-between">
+                                          <span>Przetworzono poprawnie:</span>
+                                          <span className="font-bold text-emerald-600">{importReport.success}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                          <span>Pominięto (puste/błędy):</span>
+                                          <span className="font-bold text-slate-500">{importReport.skipped}</span>
+                                      </div>
+                                      {importType === 'CROPS' && (
+                                          <div className="flex justify-between text-blue-600">
+                                              <span>Utworzono nowych działek:</span>
+                                              <span className="font-bold">{importReport.errors.length === 0 ? 'Automatycznie' : '0'}</span>
+                                          </div>
+                                      )}
+                                  </div>
+                                  
+                                  {importReport.errors.length > 0 && (
+                                      <div className="mt-3 pt-3 border-t border-slate-200">
+                                          <p className="text-xs font-bold text-red-500 mb-1 flex items-center gap-1">
+                                              <AlertTriangle size={12}/> Błędy dopasowania:
+                                          </p>
+                                          <div className="max-h-24 overflow-y-auto text-xs text-red-400 bg-white p-2 rounded border border-red-100">
+                                              {importReport.errors.slice(0, 10).map((err, i) => (
+                                                  <div key={i}>{err}</div>
+                                              ))}
+                                              {importReport.errors.length > 10 && <div>...i {importReport.errors.length - 10} więcej.</div>}
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                              <button 
+                                  onClick={() => setShowImportModal(false)}
+                                  className="w-full mt-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium"
+                              >
+                                  Zamknij
+                              </button>
+                          </div>
+                      )}
                       
-                      <p className="text-xs text-slate-500 text-center">
-                          Upewnij się, że plik CSV jest zgodny z wybranym szablonem. <br/>
-                          Możesz zarządzać szablonami w <strong>Panelu Admina</strong>.
-                      </p>
+                      {!importReport && (
+                        <p className="text-xs text-slate-500 text-center">
+                            Upewnij się, że plik CSV jest zgodny z wybranym szablonem.
+                        </p>
+                      )}
                   </div>
               </div>
           </div>

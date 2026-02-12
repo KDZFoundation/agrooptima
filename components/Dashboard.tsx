@@ -7,7 +7,7 @@ interface DashboardProps {
   farmData: FarmData;
   recentDocuments: FarmerDocument[];
   onViewAllDocuments: () => void;
-  onManageFields: () => void;
+  onManageFields: (tab?: 'PARCELS' | 'CROPS') => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields }) => {
@@ -32,6 +32,10 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
     farmData.fields.forEach(field => {
         areaSum += field.area;
         const crop = getCropForYear(field, selectedYear);
+        
+        // Skip undefined or 'Nieznana' crops from summary stats
+        if (crop === 'Nieznana' || crop === 'Brak danych') return;
+        
         if (!summary[crop]) summary[crop] = 0;
         summary[crop] += field.area;
     });
@@ -173,7 +177,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     <h3 className="font-bold text-slate-800">Okno Działek ({selectedYear})</h3>
                 </div>
                 <button 
-                    onClick={onManageFields}
+                    onClick={() => onManageFields('PARCELS')}
                     className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center"
                 >
                     Pełna Ewidencja <ChevronRight size={16} />
@@ -206,9 +210,17 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                                         )}
                                     </td>
                                     <td className="p-2">
-                                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-100">
-                                            {getCropForYear(field, selectedYear)}
-                                        </span>
+                                        {(() => {
+                                            const crop = getCropForYear(field, selectedYear);
+                                            if (crop === 'Nieznana' || crop === 'Brak danych') {
+                                                return <span className="text-slate-300">-</span>;
+                                            }
+                                            return (
+                                                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-100">
+                                                    {crop}
+                                                </span>
+                                            );
+                                        })()}
                                     </td>
                                 </tr>
                             ))}
@@ -231,7 +243,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     <h3 className="font-bold text-slate-800">Okno Zasiewów ({selectedYear})</h3>
                 </div>
                 <button 
-                    onClick={onManageFields}
+                    onClick={() => onManageFields('CROPS')}
                     className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center"
                 >
                     Zarządzaj <ChevronRight size={16} />
@@ -272,7 +284,7 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                  ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400 p-4">
                         <PieChart size={32} className="mb-2 opacity-50"/>
-                        <p className="text-sm">Brak danych o zasiewach dla roku {selectedYear}</p>
+                        <p className="text-sm">Brak zdefiniowanych upraw dla roku {selectedYear}</p>
                     </div>
                  )}
             </div>

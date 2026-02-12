@@ -1,5 +1,5 @@
 
-import { FarmerClient, Field, FarmerDocument, SubsidyRate } from '../types';
+import { FarmerClient, Field, FarmerDocument, SubsidyRate, CropDefinition } from '../types';
 
 // Detect API URL from environment (Vite/Cloud) or default to dynamic local
 const getBaseUrl = () => {
@@ -186,6 +186,42 @@ export const api = {
             return true;
         } catch (error) {
             console.warn('API unavailable (Offline Mode): Rate deleted locally.');
+            return true;
+        }
+    },
+
+    // --- Crops Dictionary ---
+    async getCrops(): Promise<CropDefinition[]> {
+        try {
+            const res = await fetch(`${API_BASE_URL}/crops`);
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (error) {
+            return [];
+        }
+    },
+
+    async saveCrop(crop: CropDefinition): Promise<CropDefinition | null> {
+        try {
+            const res = await fetch(`${API_BASE_URL}/crops`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(crop)
+            });
+            if (!res.ok) throw new Error('Failed to save crop');
+            return await res.json();
+        } catch (error) {
+            console.warn('API unavailable (Offline Mode): Crop saved locally.');
+            return crop;
+        }
+    },
+
+    async deleteCrop(cropId: string): Promise<boolean> {
+        try {
+            await fetch(`${API_BASE_URL}/crops/${cropId}`, { method: 'DELETE' });
+            return true;
+        } catch (error) {
+            console.warn('API unavailable (Offline Mode): Crop deleted locally.');
             return true;
         }
     }

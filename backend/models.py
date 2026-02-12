@@ -41,6 +41,7 @@ class FarmerClient(Base):
     advisor = relationship("User", back_populates="farmers")
     documents = relationship("FarmerDocument", back_populates="farmer", cascade="all, delete-orphan")
     fields = relationship("Field", back_populates="farmer", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="farmer", cascade="all, delete-orphan")
 
 
 class FarmerDocument(Base):
@@ -87,6 +88,20 @@ class FieldHistory(Base):
     field = relationship("Field", back_populates="history")
 
 
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(String, primary_key=True, index=True)
+    farmer_id = Column(String, ForeignKey("farmers.producer_id"))
+    year = Column(Integer)
+    amount = Column(Float, default=0.0)
+    currency = Column(String, default="PLN")
+    status = Column(String, default="PLANNED") # PLANNED, APPROVED, PAID
+    details = Column(JSON, nullable=True) # Snapshot of calculations
+
+    farmer = relationship("FarmerClient", back_populates="payments")
+
+
 class SubsidyRate(Base):
     __tablename__ = "subsidy_rates"
 
@@ -96,3 +111,12 @@ class SubsidyRate(Base):
     unit = Column(String) 
     category = Column(String) 
     year = Column(Integer, default=2026)
+
+class CropDefinition(Base):
+    __tablename__ = "crop_definitions"
+
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    type = Column(String) # np. Zboża, Okopowe
+    is_legume = Column(Boolean, default=False)
+    is_catch_crop = Column(Boolean, default=False)

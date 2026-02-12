@@ -1,8 +1,16 @@
 
-
-export type CropType = 'Pszenica' | 'Rzepak' | 'Kukurydza' | 'Burak Cukrowy' | 'Jęczmień' | 'Żyto' | 'Ziemniaki' | 'Trawy' | 'Rośliny Bobowate' | 'Mieszanka';
+export type CropType = 'Pszenica' | 'Rzepak' | 'Kukurydza' | 'Burak Cukrowy' | 'Jęczmień' | 'Żyto' | 'Ziemniaki' | 'Trawy' | 'Rośliny Bobowate' | 'Mieszanka' | 'Nieznana' | string;
 
 export type UserRole = 'ADVISOR' | 'FARMER';
+
+// Tabela: Słownik Upraw
+export interface CropDefinition {
+    id: string;
+    name: string; // np. "Pszenica ozima"
+    type: string; // np. "Zboża"
+    isLegume: boolean; // Czy bobowata (do płatności)
+    isCatchCrop: boolean; // Czy nadaje się na międzyplon
+}
 
 // Tabela: Dzialki_Historia
 export interface FieldHistoryEntry {
@@ -11,6 +19,37 @@ export interface FieldHistoryEntry {
   appliedEcoSchemes: string[]; // E_USU, E_IPR, E_OPN
   limingDate?: string; // YYYY-MM-DD
   soilPh?: number;
+
+  // Additional fields from 'uprawy.csv'
+  designation?: string; // Oznaczenie Uprawy / działki rolnej
+  designationZal?: string; // Oznaczenie Uprawy / działki rolnej ZAL
+  paymentList?: string; // Lista płatności
+  isUnreported?: string; // Czy niezgłoszona (Tak/Nie)
+  plantMix?: string; // Rośliny w mieszance
+  seedQuantity?: string; // Ilość nasion
+  organic?: string; // Ekologiczna (Tak/Nie)
+  onwType?: string; // Obszar ONW
+  onwArea?: number; // Pow. obszaru ONW [ha]
+  
+  // Specyficzne płatności (PRSK, ZRSK, RE)
+  prskPackage?: string; // Nr pakietu/wariantu/opcji - płatność PRSK
+  prskPractice?: string; // Praktyka dodatkowa - płatność PRSK
+  prskFruitTreeVariety?: string; // Odmiana drzew owocowych - płatność PRSK
+  prskFruitTreeCount?: number; // L. drzew owocowych - płatność PRSK
+  prskIntercropPlant?: string; // Rośliny w międzyplonie - płatność PRSK
+  prskUsage?: string; // Sposób użytkowania - płatność PRSK
+  prskVariety?: string; // Odmiana uprawy - płatność PRSK
+
+  zrskPackage?: string; // Nr pakietu/wariantu/opcji - płatność ZRSK2327
+  zrskPractice?: string; // Praktyka dodatkowa - płatność ZRSK2327
+  zrskFruitTreeVariety?: string; // Odmiana drzew owocowych - płatność ZRSK2327
+  zrskFruitTreeCount?: number; // L. drzew owocowych - płatność ZRSK2327
+  zrskUsage?: string; // Sposób użytkowania - płatność ZRSK2327
+  zrskVariety?: string; // Odmiana uprawy - płatność ZRSK2327
+
+  rePackage?: string; // Nr pakietu/wariantu/opcji - płatność RE2327
+  
+  notes?: string; // Uwagi
 }
 
 // Tabela: Gospodarstwo (Rozszerzona)
@@ -28,6 +67,14 @@ export interface Field {
   eligibleArea: number; // Hektar kwalifikujący się ogółem na działce [ha]
   crop: CropType;
   history: FieldHistoryEntry[]; // Relacja do Dzialki_Historia
+
+  // Dane lokalizacyjne (z pliku dzialki.csv)
+  voivodeship?: string; // Województwo
+  district?: string; // Powiat
+  commune?: string; // Gmina
+  precinctName?: string; // Nazwa obrębu ewidencyjnego
+  precinctNumber?: string; // Nr obrębu ewidencyjnego
+  mapSheet?: string; // Nr arkusza mapy
 }
 
 export interface FarmData {
@@ -113,6 +160,7 @@ export interface CsvTemplate {
     id: string;
     name: string;
     type: CsvTemplateType;
+    year: number; // Rok kampanii
     // Mapuje klucz systemowy (np. 'area') na nagłówek w pliku CSV (np. 'Powierzchnia Ha')
     mappings: Record<string, string>; 
     separator: string; // ';' lub ','

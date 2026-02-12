@@ -1,6 +1,8 @@
 
 from fastapi import FastAPI, HTTPException, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field as PydanticField
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -57,45 +59,54 @@ def seed_initial_data(db: Session):
 
         # 2. Farmers (Assigned to Advisor)
         farmers = [
-            models.FarmerClient(producer_id="065432109", advisor_id=advisor_id, first_name="Jan", last_name="Kowalski", total_area=11.0, status="ACTIVE", last_contact="2023-10-05"),
+            # Piotr Linkowski (050237165) - CLEAN SLATE (No fields, No docs, Area 0, No payments)
+            models.FarmerClient(producer_id="050237165", advisor_id=advisor_id, first_name="Piotr", last_name="Linkowski", total_area=0.0, status="ACTIVE", last_contact="2023-10-05"),
+            
+            # Other Mock Farmers (with sample data)
             models.FarmerClient(producer_id="077123456", advisor_id=advisor_id, first_name="Piotr", last_name="Nowak", total_area=45.5, status="PENDING", last_contact="2023-09-28"),
             models.FarmerClient(producer_id="055987654", advisor_id=advisor_id, first_name="Maria", last_name="Wiśniewska", total_area=8.2, status="COMPLETED", last_contact="2023-10-01"),
             models.FarmerClient(producer_id="088456123", advisor_id=advisor_id, first_name="Tadeusz", last_name="Wójcik", total_area=124.0, status="ACTIVE", last_contact="2023-10-10"),
+            models.FarmerClient(producer_id="012345678", advisor_id=advisor_id, first_name="Krzysztof", last_name="Zieliński", total_area=25.5, status="PENDING", last_contact="2023-10-12"),
+            models.FarmerClient(producer_id="098765432", advisor_id=advisor_id, first_name="Barbara", last_name="Mazur", total_area=150.0, status="ACTIVE", last_contact="2023-10-15"),
+            models.FarmerClient(producer_id="055544433", advisor_id=advisor_id, first_name="Andrzej", last_name="Krawczyk", total_area=42.3, status="COMPLETED", last_contact="2023-10-08"),
+            models.FarmerClient(producer_id="011223344", advisor_id=advisor_id, first_name="Stanisław", last_name="Jankowski", total_area=12.5, status="ACTIVE", last_contact="2023-10-14"),
+            models.FarmerClient(producer_id="066778899", advisor_id=advisor_id, first_name="Ewa", last_name="Dąbrowska", total_area=8.9, status="PENDING", last_contact="2023-10-11"),
         ]
         db.add_all(farmers)
         db.flush() 
 
-        # 3. Fields for Jan Kowalski (065432109)
-        fields_kowalski = [
-            models.Field(id="f1", farmer_id="065432109", name="Działka za lasem", registration_number="145/2", area=5.4, eligible_area=5.4, crop="Pszenica"),
-            models.Field(id="f2", farmer_id="065432109", name="Przy drodze", registration_number="88/1", area=2.1, eligible_area=2.05, crop="Rzepak"),
-            models.Field(id="f3", farmer_id="065432109", name="Łąka nad rzeką", registration_number="12/4", area=3.5, eligible_area=3.5, crop="Trawy"),
+        # 3. Fields - ONLY for other farmers. Piotr Linkowski (050237165) has NO fields.
+        
+        # Fields for Barbara Mazur (098765432)
+        fields_mazur = [
+            models.Field(id="fm1", farmer_id="098765432", name="Działka przy lesie", registration_number="101/5", area=50.0, eligible_area=49.5, crop="Kukurydza"),
+            models.Field(id="fm2", farmer_id="098765432", name="Wielkie Pole", registration_number="202/1", area=80.0, eligible_area=80.0, crop="Pszenica"),
+            models.Field(id="fm3", farmer_id="098765432", name="Łąka", registration_number="55/3", area=20.0, eligible_area=20.0, crop="Trawy"),
         ]
-        db.add_all(fields_kowalski)
+        db.add_all(fields_mazur)
         db.flush()
 
-        # 4. History for Fields
-        history_entries = [
-            # History for f1
-            models.FieldHistory(field_id="f1", year=2025, crop="Rzepak", applied_eco_schemes=["E_IPR"], soil_ph=5.5),
-            models.FieldHistory(field_id="f1", year=2024, crop="Pszenica", applied_eco_schemes=[], liming_date="2024-09-10"),
-            models.FieldHistory(field_id="f1", year=2023, crop="Kukurydza", applied_eco_schemes=["E_OPN"]),
-            # History for f2
-            models.FieldHistory(field_id="f2", year=2025, crop="Jęczmień", applied_eco_schemes=[], soil_ph=6.2),
-            models.FieldHistory(field_id="f2", year=2024, crop="Mieszanka", applied_eco_schemes=["E_USU"]),
-            # History for f3
-            models.FieldHistory(field_id="f3", year=2025, crop="Trawy", applied_eco_schemes=["E_WOD"]),
+        # 4. History for Fields (Mazur only, ensuring tables are populated but Linkowski remains empty)
+        history_mazur = [
+             models.FieldHistory(field_id="fm1", year=2025, crop="Kukurydza", applied_eco_schemes=["E_IPR"]),
+             models.FieldHistory(field_id="fm1", year=2024, crop="Rzepak", applied_eco_schemes=[]),
+             models.FieldHistory(field_id="fm2", year=2025, crop="Pszenica", applied_eco_schemes=["E_UPR"]),
         ]
-        db.add_all(history_entries)
+        db.add_all(history_mazur)
 
-        # 5. Documents for Jan Kowalski
-        docs = [
-            models.FarmerDocument(id="d1", farmer_id="065432109", name="Wniosek_2026_Kowalski.pdf", type="PDF", category="WNIOSEK", campaign_year="2026", size="2.4 MB", upload_date="2023-10-05"),
-            models.FarmerDocument(id="d2", farmer_id="065432109", name="Mapa_Gospodarstwa.gml", type="GML", category="MAPA", campaign_year="2026", size="156 KB", upload_date="2023-10-01"),
+        # 5. Documents - ONLY for other farmers. Piotr Linkowski (050237165) has NO documents.
+        docs_others = [
+             models.FarmerDocument(id="d1", farmer_id="098765432", name="Wniosek_2025_Mazur.pdf", type="PDF", category="WNIOSEK", campaign_year="2025", size="1.8 MB", upload_date="2023-09-15"),
         ]
-        db.add_all(docs)
+        db.add_all(docs_others)
+        
+        # 6. Payments - Sample payment for other farmers to verify table structure
+        payments_others = [
+            models.Payment(id="p1", farmer_id="098765432", year=2025, amount=15400.50, status="PAID", details={"base": 10000, "eco": 5400.50}),
+        ]
+        db.add_all(payments_others)
 
-        # 6. Default Rates (Subsidy Rates)
+        # 7. Subsidy Rates - 2025 ACCURATE RATES (Based on OCR)
         rates = [
             # 2026 DEMO RATES
             models.SubsidyRate(id='S01', name='Rośliny bobowate', rate=700, unit='PLN/ha', category='EKOSCHEMAT', year=2026),
@@ -144,13 +155,34 @@ def seed_initial_data(db: Session):
             models.SubsidyRate(id='E25_15', name='Biologiczna uprawa (Środki ochrony)', rate=310.88, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
             models.SubsidyRate(id='E25_16', name='Biologiczna uprawa (Prep. mikrobiologiczne)', rate=87.52, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
             models.SubsidyRate(id='E25_17', name='Retencjonowanie wody na TUZ', rate=245.98, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
-            models.SubsidyRate(id='E25_18', name='Grunty wyłączone z produkcji', rate=437.57, unit='PLN/ha', category='EKOSCHEMAT', year: 2025),
-            models.SubsidyRate(id='E25_19', name='Materiał siewny (Zboża)', rate=104.15, unit='PLN/ha', category='EKOSCHEMAT', year: 2025),
-            models.SubsidyRate(id='E25_20', name='Materiał siewny (Strączkowe)', rate=168.93, unit='PLN/ha', category='EKOSCHEMAT', year: 2025),
-            models.SubsidyRate(id='E25_21', name='Materiał siewny (Ziemniaki)', rate=436.76, unit='PLN/ha', category='EKOSCHEMAT', year: 2025),
+            models.SubsidyRate(id='E25_18', name='Grunty wyłączone z produkcji', rate=437.57, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
+            models.SubsidyRate(id='E25_19', name='Materiał siewny (Zboża)', rate=104.15, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
+            models.SubsidyRate(id='E25_20', name='Materiał siewny (Strączkowe)', rate=168.93, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
+            models.SubsidyRate(id='E25_21', name='Materiał siewny (Ziemniaki)', rate=436.76, unit='PLN/ha', category='EKOSCHEMAT', year=2025),
         ]
         if db.query(models.SubsidyRate).count() == 0:
             db.add_all(rates)
+
+        # 8. Crop Dictionary (Seeding)
+        crop_dictionary = [
+            models.CropDefinition(id='C01', name='Pszenica ozima', type='Zboża', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C02', name='Rzepak ozimy', type='Oleiste', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C03', name='Kukurydza na ziarno', type='Zboża', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C04', name='Kukurydza na kiszonkę', type='Pasze', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C05', name='Burak Cukrowy', type='Okopowe', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C06', name='Jęczmień jary', type='Zboża', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C07', name='Żyto', type: 'Zboża', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C08', name='Ziemniaki skrobiowe', type='Okopowe', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C09', name='Łubin wąskolistny', type='Bobowate', is_legume=True, is_catch_crop=True),
+            models.CropDefinition(id='C10', name='Groch siewny', type='Bobowate', is_legume=True, is_catch_crop=True),
+            models.CropDefinition(id='C11', name='Chmiel', type='Specjalne', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C12', name='Len', type='Włókniste', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C13', name='Konopie włókniste', type='Włókniste', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C14', name='Tytoń', type='Specjalne', is_legume=False, is_catch_crop=False),
+            models.CropDefinition(id='C15', name='Trawy na GO', type='Trawy', is_legume=False, is_catch_crop=True),
+        ]
+        if db.query(models.CropDefinition).count() == 0:
+            db.add_all(crop_dictionary)
 
         db.commit()
         logger.info("Startup: Demo data seeded successfully.")
@@ -256,6 +288,16 @@ class SubsidyRateSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class CropDefinitionSchema(BaseModel):
+    id: str
+    name: str
+    type: str
+    isLegume: bool = PydanticField(alias="is_legume")
+    isCatchCrop: bool = PydanticField(alias="is_catch_crop")
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
 class UserSchema(BaseModel):
     id: int
     email: str
@@ -266,8 +308,10 @@ class UserSchema(BaseModel):
 
 # --- Endpoints ---
 
-@app.get("/")
-def read_root():
+# @app.get("/") is REPLACED by StaticFiles below for frontend serving
+# But we can keep an API root
+@app.get("/api")
+def read_api_root():
     return {"status": "online", "message": "AgroOptima API is operational"}
 
 @app.get("/health")
@@ -474,6 +518,53 @@ def delete_rate(rate_id: str, db: Session = Depends(database.get_db)):
         db.delete(rate)
         db.commit()
     return {"status": "success"}
+
+# Crops Dictionary
+@app.get("/api/crops", response_model=List[CropDefinitionSchema])
+def get_crops(db: Session = Depends(database.get_db)):
+    return db.query(models.CropDefinition).all()
+
+@app.post("/api/crops", response_model=CropDefinitionSchema)
+def create_crop(crop: CropDefinitionSchema, db: Session = Depends(database.get_db)):
+    db_crop = db.query(models.CropDefinition).filter(models.CropDefinition.id == crop.id).first()
+    if db_crop:
+        # Update existing
+        db_crop.name = crop.name
+        db_crop.type = crop.type
+        db_crop.is_legume = crop.isLegume
+        db_crop.is_catch_crop = crop.isCatchCrop
+        db.commit()
+        db.refresh(db_crop)
+        return db_crop
+    else:
+        new_crop = models.CropDefinition(
+            id=crop.id,
+            name=crop.name,
+            type=crop.type,
+            is_legume=crop.isLegume,
+            is_catch_crop=crop.isCatchCrop
+        )
+        db.add(new_crop)
+        db.commit()
+        db.refresh(new_crop)
+        return new_crop
+
+@app.delete("/api/crops/{crop_id}")
+def delete_crop(crop_id: str, db: Session = Depends(database.get_db)):
+    crop = db.query(models.CropDefinition).filter(models.CropDefinition.id == crop_id).first()
+    if crop:
+        db.delete(crop)
+        db.commit()
+    return {"status": "success"}
+
+# --- STATIC FILES (FRONTEND) ---
+# Mount static files to serve the React frontend (assuming 'dist' or 'build' exists)
+# This allows the API and Frontend to be served from the same domain/port in Cloud Run.
+if os.path.exists("dist"):
+    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+elif os.path.exists("../dist"):
+    # Fallback if running from backend dir
+    app.mount("/", StaticFiles(directory="../dist", html=True), name="static")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
