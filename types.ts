@@ -10,6 +10,23 @@ export interface User {
     role: UserRole;
 }
 
+export type OperationType = 'NAWOZENIE' | 'OPRYSK' | 'SIEW' | 'UPRAWA' | 'ZBIOR' | 'INNE';
+
+export interface FieldOperation {
+    id: string;
+    fieldId: string;
+    fieldName: string;
+    date: string;
+    type: OperationType;
+    productName: string;
+    dosage: string;
+    unit: string;
+    operatorName?: string;
+    photoUrl?: string;
+    isEcoSchemeRelevant: boolean;
+    linkedEcoScheme?: string;
+}
+
 export interface FarmerApplicationData {
     submissionType: 'Wniosek' | 'Zmiana' | 'Wycofanie';
     commitments: {
@@ -60,7 +77,7 @@ export interface AuthResponse {
     token: string;
     user: User;
 }
-// ... reszta istniejących typów ...
+
 export interface KnowledgeChunk {
     id: string;
     documentId: string;
@@ -268,4 +285,4 @@ export interface CsvTemplate {
     separator: string;
 }
 
-export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION' | 'HIERARCHY' | 'SEMANTIC_EXPLORER' | 'FARMER_APPLICATION';
+export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION' | 'HIERARCHY' | 'SEMANTIC_EXPLORER' | 'FARMER_APPLICATION' | 'OPERATIONS_LOG';

@@ -43,6 +43,26 @@ class FarmerClient(Base):
     documents = relationship("FarmerDocument", back_populates="farmer", cascade="all, delete-orphan")
     fields = relationship("Field", back_populates="farmer", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="farmer", cascade="all, delete-orphan")
+    operations = relationship("FieldOperation", back_populates="farmer", cascade="all, delete-orphan")
+
+
+class FieldOperation(Base):
+    __tablename__ = "operations"
+
+    id = Column(String, primary_key=True, index=True)
+    farmer_id = Column(String, ForeignKey("farmers.producer_id"))
+    field_id = Column(String, ForeignKey("fields.id"))
+    field_name = Column(String)
+    date = Column(String)
+    type = Column(String) # 'NAWOZENIE', 'OPRYSK', 'SIEW', 'UPRAWA', 'ZBIOR', 'INNE'
+    product_name = Column(String)
+    dosage = Column(String)
+    unit = Column(String)
+    is_eco_scheme_relevant = Column(Boolean, default=False)
+    linked_eco_scheme = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
+
+    farmer = relationship("FarmerClient", back_populates="operations")
 
 
 class FarmerDocument(Base):

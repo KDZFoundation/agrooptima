@@ -117,9 +117,13 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
         if (!text) return;
         
         try {
+            // Remove BOM and normalize line endings
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
             const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-            if (lines.length < 2) return;
+            if (lines.length < 2) {
+                alert("Plik jest pusty lub zawiera tylko nagłówek.");
+                return;
+            }
             
             const separator = template.separator;
             const fileHeaders = splitCSV(lines[0], separator).map(h => h.trim().toLowerCase());
@@ -143,6 +147,8 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
 
                 for (let i = 1; i < lines.length; i++) {
                     const cols = splitCSV(lines[i], separator);
+                    if (cols.length < 2) continue;
+
                     const rawReg = getVal(cols, 'registrationNumber');
                     if (!rawReg) { report.skipped++; continue; }
                     const normReg = normalizeRegNum(rawReg);
@@ -181,7 +187,6 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                         const areaVal = parsePolishNumber(getVal(cols, 'specificArea') || getVal(cols, 'area'));
 
                         if (existingIdx === -1) {
-                            // Jeśli działka nie istnieje, tworzymy ją, ale PEG = 0 (Zgodnie z prośbą)
                             const newId = Math.random().toString(36).substr(2, 9);
                             newFields.push({ 
                                 id: newId, 
@@ -200,7 +205,6 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                         let hIdx = hist.findIndex(h => h.year === selectedYear);
 
                         if (hIdx === -1) {
-                            // Nowy wpis historii - PEG ustawiamy na 0, bo to import zasiewów
                             hist.push({ 
                                 year: selectedYear, 
                                 crop: cropRaw, 
@@ -231,7 +235,10 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             });
             setImportReport(report);
         } catch (e) {
+            console.error("CSV Import Error:", e);
             alert("Błąd importu: sprawdź separator i nagłówki pliku.");
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
     reader.readAsText(file);

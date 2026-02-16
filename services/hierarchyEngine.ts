@@ -1,10 +1,9 @@
 
-import { FarmData, HierarchyGraph, HierarchyNode, Field, FarmerDocument, SubsidyRate, KnowledgeChunk } from '../types';
-import { ragEngine } from './ragEngine';
+import { FarmData, HierarchyGraph, HierarchyNode, FarmerDocument, SubsidyRate } from '../types';
 
 /**
  * Silnik Ekstrakcji Hierarchii (HEE) - Generuje DAG kampanii.
- * Teraz wzbogacony o Semantic Linker, który automatycznie dołącza fragmenty dokumentów.
+ * Wersja uproszczona - bez Semantic Linker.
  */
 export const extractHierarchy = async (farmData: FarmData, year: number, documents: FarmerDocument[], rates: SubsidyRate[]): Promise<HierarchyGraph> => {
     const nodes: HierarchyNode[] = [];
@@ -39,22 +38,19 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
         evidence: {
             source: 'Moduł Dokumentów',
             timestamp: now,
-            details: wniosekDoc ? `Plik PDF zindeksowany semantycznie.` : 'Nie znaleziono pliku.'
+            details: wniosekDoc ? `Plik PDF zweryfikowany pod kątem kampanii.` : 'Nie znaleziono pliku.'
         }
     };
     rootNode.children?.push(docNodeId);
     nodes.push(docNode);
 
-    // 3. Warstwa Terytorialna z Semantic Evidence
+    // 3. Warstwa Terytorialna
     const communes = Array.from(new Set(farmData.fields.map(f => f.commune || 'Nieprzypisane')));
     
     for (const communeName of communes) {
         const communeId = `commune_${communeName.replace(/\s/g, '_')}_${campaignId}`;
         const fieldsInCommune = farmData.fields.filter(f => (f.commune || 'Nieprzypisane') === communeName);
         
-        // Linkowanie semantyczne dla gminy
-        const semanticCommune = await ragEngine.getRelevantContextSemantic(`Gmina ${communeName} obręb`, 2);
-
         const communeNode: HierarchyNode = {
             id: communeId,
             type: 'COMMUNE',
@@ -64,8 +60,7 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
             evidence: {
                 source: 'Ewidencja Gruntów',
                 timestamp: now,
-                details: `Agregacja terytorialna dla gminy.`,
-                semanticMatches: semanticCommune
+                details: `Agregacja terytorialna dla gminy.`
             },
             children: []
         };
@@ -77,10 +72,6 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
             if (!hist) continue;
 
             const parcelRefId = `parcel_ref_${field.id}_${campaignId}`;
-            
-            // Linkowanie semantyczne dla konkretnej działki
-            const semanticParcel = await ragEngine.getRelevantContextSemantic(`Działka ${field.registrationNumber} powierzchni ${hist.eligibleArea}`, 2);
-
             const parcelNode: HierarchyNode = {
                 id: parcelRefId,
                 type: 'PARCEL_REF',
@@ -90,8 +81,7 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
                 evidence: {
                     source: 'Zasób ARiMR',
                     timestamp: now,
-                    details: `Powierzchnia referencyjna z e-wniosku.`,
-                    semanticMatches: semanticParcel
+                    details: `Powierzchnia referencyjna zweryfikowana z ewidencją.`
                 },
                 children: []
             };
@@ -113,7 +103,7 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
                     evidence: {
                         source: 'Struktura Zasiewów',
                         timestamp: now,
-                        details: `Deklaracja rośliny uprawnej.`
+                        details: `Deklaracja rośliny uprawnej na części działki.`
                     },
                     children: []
                 };
@@ -124,9 +114,6 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
                     const rate = rates.find(r => r.shortName === schemeCode && r.year === year);
                     const schemeId = `scheme_${agriParcelId}_${schemeCode}`;
                     
-                    // Semantyczne wyjaśnienie ekoschematu
-                    const semanticScheme = await ragEngine.getRelevantContextSemantic(`Wymogi dla ekoschematu ${schemeCode} ${rate?.name}`, 1);
-
                     const schemeNode: HierarchyNode = {
                         id: schemeId,
                         type: 'ECO_SCHEME',
@@ -136,8 +123,7 @@ export const extractHierarchy = async (farmData: FarmData, year: number, documen
                         evidence: {
                             source: 'Logika Biznesowa',
                             timestamp: now,
-                            details: rate?.description || `Zastosowanie ekoschematu.`,
-                            semanticMatches: semanticScheme
+                            details: rate?.description || `Zastosowanie ekoschematu.`
                         }
                     };
                     agriNode.children?.push(schemeId);

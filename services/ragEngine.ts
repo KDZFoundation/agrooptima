@@ -1,24 +1,42 @@
 
 import { KnowledgeChunk, FarmerDocument } from '../types';
 
-/**
- * Silnik RAG (Zoptymalizowany pod kątem braku embeddingów)
- * Używa wyszukiwania słów kluczowych i dopasowania tekstowego.
- */
-
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 200;
+const STORAGE_KEY = 'ao_rag_chunks';
 
 class RagEngine {
     private chunks: KnowledgeChunk[] = [];
 
-    /**
-     * Indeksuje dokument - tnie na fragmenty, pomija embeddingi.
-     */
+    constructor() {
+        // Odczytaj zapisane chunki z localStorage przy starcie
+        this.loadFromStorage();
+    }
+
+    private loadFromStorage() {
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                this.chunks = JSON.parse(stored);
+                console.log(`[RAG] Wczytano ${this.chunks.length} fragmentów z localStorage.`);
+            }
+        } catch (e) {
+            console.warn("[RAG] Nie udało się wczytać danych z localStorage.");
+            this.chunks = [];
+        }
+    }
+
+    private saveToStorage() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.chunks));
+        } catch (e) {
+            console.warn("[RAG] Nie udało się zapisać do localStorage (może za dużo danych).");
+        }
+    }
+
     public async indexDocument(doc: FarmerDocument, text: string) {
         if (!text || text.trim().length === 0) return;
         
-        // Czyścimy stare fragmenty tego dokumentu
         this.chunks = this.chunks.filter(c => c.documentId !== doc.id);
 
         const newChunks: KnowledgeChunk[] = [];
@@ -47,18 +65,15 @@ class RagEngine {
         }
 
         this.chunks.push(...newChunks);
-        console.log(`[RAG] Zindeksowano tekstowo (bez wektorów): ${doc.name}`);
+        this.saveToStorage(); // ← ZAPISZ DO localStorage
+        console.log(`[RAG] Zindeksowano: ${doc.name} (${newChunks.length} fragmentów)`);
     }
 
-    /**
-     * Wyszukiwanie kontekstu oparte na dopasowaniu słów (Keyword Relevance).
-     */
     public async getRelevantContextSemantic(query: string, limit: number = 5): Promise<KnowledgeChunk[]> {
         if (!query || this.chunks.length === 0) return [];
 
         const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 3);
         
-        // Proste punktowanie trafień słów kluczowych
         const scored = this.chunks.map(chunk => {
             let score = 0;
             const contentLower = chunk.content.toLowerCase();
@@ -66,7 +81,6 @@ class RagEngine {
             searchTerms.forEach(term => {
                 if (contentLower.includes(term)) {
                     score += 1;
-                    // Premia za rzadsze słowa lub dokładne dopasowanie
                     if (contentLower.indexOf(term) === 0) score += 0.5;
                 }
             });
@@ -95,6 +109,7 @@ class RagEngine {
 
     public clearStore() {
         this.chunks = [];
+        localStorage.removeItem(STORAGE_KEY);
     }
 }
 
