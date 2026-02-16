@@ -1,54 +1,36 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { FarmData, OptimizationResult, SemanticQueryResult, KnowledgeChunk, FarmerApplicationData, FieldOperation } from "../types";
-import { SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, SUBSIDY_RATES_2024 } from "../constants";
+import { FarmData, OptimizationResult, SemanticQueryResult, KnowledgeChunk, FarmerApplicationData } from "../types";
+import { SUBSIDY_RATES_2026 } from "../constants";
 import { ragEngine } from "./ragEngine";
 
+// Klucz API pobierany wyłącznie z process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
- * Embedding pojedynczego tekstu.
+ * EMBEDDING WYŁĄCZONY - Zwraca pustą tablicę.
  */
 export const getEmbedding = async (text: string, isQuery: boolean = false): Promise<number[]> => {
-    try {
-        // Fix: Changed 'contents' to 'content' and updated response access to 'embedding.values'
-        const response = await ai.models.embedContent({
-            model: "text-embedding-004",
-            content: { parts: [{ text }] },
-            taskType: isQuery ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT"
-        });
-        
-        return response.embedding?.values || [];
-    } catch (error: any) {
-        console.error("Embedding error:", error);
-        return [];
-    }
+    return []; // Zwracamy puste dane, aby nie obciążać API
 };
 
 /**
- * Batch embedding.
+ * BATCH EMBEDDING WYŁĄCZONY - Zwraca puste wyniki.
  */
 export const getBatchEmbeddings = async (texts: string[]): Promise<number[][]> => {
-    if (!texts || texts.length === 0) return [];
-    
-    try {
-        const results = await Promise.all(texts.map(text => getEmbedding(text)));
-        return results;
-    } catch (error: any) {
-        console.error("Batch embedding error:", error);
-        return texts.map(() => []);
-    }
+    return texts.map(() => []);
 };
 
 /**
- * Wyodrębnia tekst z PDF/Obrazu (OCR).
+ * Wyodrębnia tekst z PDF (OCR). 
+ * Pozostawiamy aktywny OCR, ponieważ jest niezbędny do działania bazy wiedzy.
  */
 export const extractRawText = async (base64Data: string, mimeType: string): Promise<string> => {
-    const model = "gemini-3-flash-preview";
+    const model = "gemini-flash-lite-latest";
     const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     const safeMimeType = supportedTypes.includes(mimeType) ? mimeType : 'application/pdf';
 
-    const prompt = "Wyodrębnij tekst z tego dokumentu rolniczego. Zwróć czysty tekst bez komentarzy.";
+    const prompt = "Wyodrębnij cały tekst z tego dokumentu rolniczego. Zachowaj strukturę tabel i oznaczenia działek. Zwróć czysty tekst.";
 
     try {
         const response = await ai.models.generateContent({
@@ -63,152 +45,82 @@ export const extractRawText = async (base64Data: string, mimeType: string): Prom
         return response.text || "";
     } catch (error: any) {
         console.error("Gemini OCR Error:", error);
-        throw new Error("Nie udało się odczytać tekstu.");
+        throw new Error("Nie udało się odczytać tekstu z pliku.");
     }
 };
 
 /**
- * Funkcja do inteligentnego parsowania notatek rolnika na ustrukturyzowane zabiegi.
+ * Automatyczne uzupełnianie wniosku na podstawie tekstów z RAG (teraz wyszukiwanie tekstowe).
  */
-export const parseOperationNote = async (note: string, fieldNames: string[]): Promise<Partial<FieldOperation>> => {
-    const model = "gemini-3-flash-preview";
-    const prompt = `Przetwórz notatkę na zabieg agrotechniczny: "${note}". Pola: ${fieldNames.join(", ")}. Zwróć JSON.`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        type: { type: Type.STRING },
-                        productName: { type: Type.STRING },
-                        dosage: { type: Type.STRING },
-                        unit: { type: Type.STRING },
-                        fieldName: { type: Type.STRING },
-                        isEcoSchemeRelevant: { type: Type.BOOLEAN }
-                    }
-                }
-            }
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        return {};
-    }
-};
-
-/**
- * Optymalizacja dopłat z użyciem JSON Schema.
- * Przełączono na model flash dla większej dostępności (uniknięcie błędu 503).
- */
-export const getFarmOptimization = async (farmData: FarmData): Promise<OptimizationResult> => {
-    // Model flash jest bardziej responsywny i rzadziej zwraca 503 przy wysokim obciążeniu
-    const model = "gemini-3-flash-preview";
-    
-    const activeFields = farmData.fields.map(f => ({
-        id: f.id,
-        name: f.name,
-        area: f.area,
-        eligibleArea: f.eligibleArea,
-        crop: f.crop,
-        currentEcoSchemes: f.history?.[0]?.appliedEcoSchemes || []
-    }));
-
-    const prompt = `Jesteś ekspertem dopłat bezpośrednich WPR 2023-2027 w Polsce. 
-    Przeanalizuj dane gospodarstwa: ${JSON.stringify(activeFields)}.
-    Zaproponuj optymalne EKOSCHEMATY dla każdej działki, aby maksymalizować zysk. 
-    Zwróć uwagę na zakazy łączenia (np. wymieszanie obornika i nawozy płynne).
-    Zwróć precyzyjny JSON.`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        totalEstimatedSubsidy: { type: Type.NUMBER },
-                        recommendations: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    fieldId: { type: Type.STRING },
-                                    fieldName: { type: Type.STRING },
-                                    suggestedEcoSchemes: { type: Type.ARRAY, items: { type: Type.STRING } },
-                                    reasoning: { type: Type.STRING },
-                                    potentialGain: { type: Type.NUMBER }
-                                },
-                                required: ["fieldId", "fieldName", "suggestedEcoSchemes", "reasoning", "potentialGain"]
-                            }
-                        },
-                        complianceNotes: { type: Type.STRING }
-                    },
-                    required: ["totalEstimatedSubsidy", "recommendations", "complianceNotes"]
-                }
-            }
-        });
-        
-        const text = response.text;
-        if (!text) throw new Error("Empty response from AI");
-        return JSON.parse(text);
-    } catch (error: any) {
-        console.error("Optimization AI Error:", error);
-        // Jeśli flash też rzuci 503, rzucamy błąd do UI
-        throw error;
-    }
-};
-
-/**
- * Czat doradcy z RAG.
- */
-export const chatWithAdvisor = async (history: any[], message: string, farmData: FarmData): Promise<SemanticQueryResult> => {
-    const model = "gemini-3-flash-preview";
-    const contextChunks = await ragEngine.getRelevantContextSemantic(message, 5);
-    const contextText = contextChunks.map(c => c.content).join('\n\n');
-
-    const systemInstruction = `Jesteś doradcą AgroOptima. Twoja wiedza pochodzi z tych dokumentów:\n${contextText}`;
-
-    try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: [...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: message }] }],
-            config: { systemInstruction }
-        });
-        return { answer: response.text || "", citations: contextChunks };
-    } catch (error) {
-        return { answer: "Błąd komunikacji z modelem.", citations: [] };
-    }
-};
-
-/**
- * Analiza pogody.
- */
-export const analyzeAgroWeather = async (weatherData: any, location: string, crops: string[]): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `Analiza pogody dla ${location}, uprawy: ${crops.join(', ')}. Dane: ${JSON.stringify(weatherData)}. Podaj 3 krótkie zalecenia.`
-        });
-        return response.text || "Brak analizy.";
-    } catch (e) {
-        return "Serwis pogodowy niedostępny.";
-    }
-};
-
 export const autofillApplicationFromRag = async (farmData: FarmData): Promise<Partial<FarmerApplicationData>> => {
+    const contextChunks = await ragEngine.getRelevantContextSemantic("płatność ekoschematy onw prsk", 15);
+    const context = contextChunks.map(c => c.content).join("\n---\n");
+
+    const model = "gemini-3-flash-preview";
+    const prompt = `
+        Na podstawie fragmentów wniosku rolnika, określ jakie płatności zostały zaznaczone (X).
+        Kontekst dokumentów:
+        ${context}
+
+        Zwróć JSON pasujący do FarmerApplicationData:
+        - directPayments (pwd_red, ekoschematy, mro)
+        - ruralDevelopment (onw, prsk1420)
+    `;
+
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: "Uzupełnij pola wniosku na podstawie dokumentów w bazie. Zwróć JSON.",
+            model,
+            contents: prompt,
             config: { responseMimeType: "application/json" }
         });
         return JSON.parse(response.text || "{}");
     } catch (e) {
         return {};
+    }
+};
+
+/**
+ * Optymalizacja dopłat.
+ */
+export const getFarmOptimization = async (farmData: FarmData): Promise<OptimizationResult> => {
+  const model = "gemini-3-pro-preview";
+  const ratesString = SUBSIDY_RATES_2026.map(r => `${r.name}: ${r.rate} ${r.unit}`).join(', ');
+
+  const prompt = `Jesteś ekspertem dopłat. Zoptymalizuj gospodarstwo ID ${farmData.profile.producerId} na rok 2026. 
+  UR: ${farmData.profile.totalAreaUR} ha. Stawki: ${ratesString}. Pola: ${JSON.stringify(farmData.fields)}. 
+  Zwróć JSON z rekomendacjami i zyskiem.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
+    });
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Gemini optimization error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Czat doradcy (teraz z RAG opartym na tekście).
+ */
+export const chatWithAdvisor = async (history: {role: 'user' | 'model', text: string}[], message: string, farmData: FarmData): Promise<SemanticQueryResult> => {
+    const model = "gemini-3-flash-preview";
+    const contextChunks = await ragEngine.getRelevantContextSemantic(message, 6);
+    const contextText = contextChunks.map((c, i) => `[${i+1}] ${c.documentName}: ${c.content}`).join('\n\n');
+
+    const systemInstruction = `Jesteś doradcą AgroOptima. Odpowiadaj TYLKO na podstawie tych fragmentów dokumentów rolnika:\n${contextText}`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: message }] }] as any,
+        config: { systemInstruction }
+      });
+      return { answer: response.text || "", citations: contextChunks };
+    } catch (error) {
+      return { answer: "Przepraszam, wystąpił błąd podczas generowania odpowiedzi.", citations: [] };
     }
 };
