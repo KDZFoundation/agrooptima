@@ -117,9 +117,13 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
         if (!text) return;
         
         try {
+            // Remove BOM and normalize line endings
             if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
             const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-            if (lines.length < 2) return;
+            if (lines.length < 2) {
+                alert("Plik jest pusty lub zawiera tylko nagłówek.");
+                return;
+            }
             
             const separator = template.separator;
             const fileHeaders = splitCSV(lines[0], separator).map(h => h.trim().toLowerCase());
@@ -143,6 +147,8 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
 
                 for (let i = 1; i < lines.length; i++) {
                     const cols = splitCSV(lines[i], separator);
+                    if (cols.length < 2) continue;
+
                     const rawReg = getVal(cols, 'registrationNumber');
                     if (!rawReg) { report.skipped++; continue; }
                     const normReg = normalizeRegNum(rawReg);
@@ -175,13 +181,22 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                             report.success++;
                         }
                     } else {
+                        // IMPORT ZASIEWÓW
                         const cropRaw = getVal(cols, 'crop');
                         if (!cropRaw) { report.skipped++; continue; }
                         const areaVal = parsePolishNumber(getVal(cols, 'specificArea') || getVal(cols, 'area'));
 
                         if (existingIdx === -1) {
                             const newId = Math.random().toString(36).substr(2, 9);
-                            newFields.push({ id: newId, name: `Działka ${rawReg}`, registrationNumber: rawReg, area: areaVal, eligibleArea: areaVal, crop: cropRaw, history: [] });
+                            newFields.push({ 
+                                id: newId, 
+                                name: `Działka ${rawReg}`, 
+                                registrationNumber: rawReg, 
+                                area: areaVal, 
+                                eligibleArea: 0, 
+                                crop: cropRaw, 
+                                history: [] 
+                            });
                             existingIdx = newFields.length - 1;
                         }
 
@@ -190,7 +205,14 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                         let hIdx = hist.findIndex(h => h.year === selectedYear);
 
                         if (hIdx === -1) {
-                            hist.push({ year: selectedYear, crop: cropRaw, appliedEcoSchemes: [], area: areaVal, eligibleArea: areaVal, cropParts: [] });
+                            hist.push({ 
+                                year: selectedYear, 
+                                crop: cropRaw, 
+                                appliedEcoSchemes: [], 
+                                area: areaVal, 
+                                eligibleArea: 0, 
+                                cropParts: [] 
+                            });
                             hIdx = hist.length - 1;
                         }
 
@@ -213,7 +235,10 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
             });
             setImportReport(report);
         } catch (e) {
+            console.error("CSV Import Error:", e);
             alert("Błąd importu: sprawdź separator i nagłówki pliku.");
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
     reader.readAsText(file);
@@ -290,7 +315,7 @@ const FieldManager: React.FC<FieldManagerProps> = ({ fields, setFields, csvTempl
                           <div className="bg-slate-50 p-6 rounded-2xl border text-left">
                               <p className="font-bold text-emerald-600 text-lg mb-2">Import zakończony</p>
                               <p className="font-medium text-slate-600">Dodano/Zaktualizowano: {importReport.success}</p>
-                              <p className="text-slate-400 text-sm">Pominięto (brak numeru EP): {importReport.skipped}</p>
+                              <p className="text-slate-400 text-sm">Pominięto: {importReport.skipped}</p>
                           </div>
                           <button onClick={()=>setShowImportModal(false)} className="w-full py-3 bg-slate-900 text-white rounded-xl font-black">Zamknij</button>
                       </div>

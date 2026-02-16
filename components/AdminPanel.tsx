@@ -1,15 +1,18 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf, Info, Link2, Star, CheckSquare, Square } from 'lucide-react';
-import { CsvTemplate, CsvTemplateType, SubsidyRate, CropDefinition } from '../types';
-import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, DEFAULT_CROP_DICTIONARY } from '../constants';
+import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf, Info, Link2, Star, CheckSquare, Square, Download, Loader2, Share2, Search, User, Database, BrainCircuit } from 'lucide-react';
+import { CsvTemplate, CsvTemplateType, SubsidyRate, CropDefinition, FarmerClient, FarmData } from '../types';
+import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, SUBSIDY_RATES_2024, DEFAULT_CROP_DICTIONARY } from '../constants';
 import { api } from '../services/api';
+import HierarchyExplorer from './HierarchyExplorer';
+import SemanticExplorer from './SemanticExplorer';
 
 interface AdminPanelProps {
   templates: CsvTemplate[];
   onSaveTemplate: (template: CsvTemplate) => void;
   onDeleteTemplate: (id: string) => void;
   selectedGlobalYear: number;
+  clients: FarmerClient[];
 }
 
 interface MappingRow {
@@ -20,9 +23,16 @@ interface MappingRow {
     required: boolean;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate, selectedGlobalYear }) => {
-  const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS'>('CSV');
+const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate, selectedGlobalYear, clients }) => {
+  const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS' | 'AUDIT' | 'RAG'>('CSV');
+  const [isProcessing, setIsProcessing] = useState(false);
   
+  // DAG Audit State
+  const [selectedAuditClientId, setSelectedAuditClientId] = useState<string>('');
+  const [auditFarmData, setAuditFarmData] = useState<FarmData | null>(null);
+  const [auditRates, setAuditRates] = useState<SubsidyRate[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+
   // CSV State
   const [activeCsvTab, setActiveCsvTab] = useState<CsvTemplateType>('PARCELS');
   const [editingTemplate, setEditingTemplate] = useState<CsvTemplate | null>(null);
@@ -42,6 +52,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const [rateForm, setRateForm] = useState<Partial<SubsidyRate>>({});
   const [selectedRateYear, setSelectedRateYear] = useState<number>(selectedGlobalYear);
   const [rateCategoryFilter, setRateCategoryFilter] = useState<'ALL' | 'DIRECT' | 'ECO'>('ALL');
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [sourceYearForClone, setSourceYearForClone] = useState<number>(selectedGlobalYear - 1);
 
   // Crops Dictionary State
   const [crops, setCrops] = useState<CropDefinition[]>([]);
@@ -60,27 +72,65 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   }, [activeMainTab]);
 
   const fetchRates = async () => {
-    let data = await api.getRates();
-    if (data.length === 0) {
-        // Fallback to constants if DB empty
-        data = [
-            ...SUBSIDY_RATES_2026.map(r => ({...r, year: 2026})),
-            ...SUBSIDY_RATES_2025.map(r => ({...r, year: 2025}))
-        ];
+    setIsProcessing(true);
+    try {
+        let data = await api.getRates();
+        if (data.length === 0) {
+            data = [
+                ...SUBSIDY_RATES_2026.map(r => ({...r, year: 2026})),
+                ...SUBSIDY_RATES_2025.map(r => ({...r, year: 2025})),
+                ...SUBSIDY_RATES_2024.map(r => ({...r, year: 2024}))
+            ];
+        }
+        setRates(data);
+    } catch (e) {
+        console.error("Fetch rates failed", e);
+    } finally {
+        setIsProcessing(false);
     }
-    setRates(data);
   };
 
   const fetchCrops = async () => {
-      let data = await api.getCrops();
-      if (data.length === 0) {
-          data = DEFAULT_CROP_DICTIONARY;
+      setIsProcessing(true);
+      try {
+          let data = await api.getCrops();
+          if (data.length === 0) {
+              data = DEFAULT_CROP_DICTIONARY;
+          }
+          setCrops(data);
+      } catch (e) {
+          console.error("Fetch crops failed", e);
+      } finally {
+          setIsProcessing(false);
       }
-      setCrops(data);
+  };
+
+  const handleStartAudit = async () => {
+      if (!selectedAuditClientId) return;
+      setIsAuditLoading(true);
+      try {
+          const fields = await api.getClientFields(selectedAuditClientId);
+          const client = clients.find(c => c.producerId === selectedAuditClientId);
+          const currentRates = await api.getRates();
+          
+          setAuditFarmData({
+              farmName: client?.farmName || `${client?.firstName} ${client?.lastName}`,
+              profile: {
+                  producerId: selectedAuditClientId,
+                  totalAreaUR: fields.reduce((acc, f) => acc + (f.eligibleArea || 0), 0),
+                  entryConditionPoints: 0
+              },
+              fields: fields
+          });
+          setAuditRates(currentRates.length > 0 ? currentRates : rates);
+      } catch (e) {
+          alert("Błąd pobierania danych do audytu.");
+      } finally {
+          setIsAuditLoading(false);
+      }
   };
 
   // --- CSV LOGIC ---
-
   const initializeRows = (templateType: CsvTemplateType, existingMappings: Record<string, string> | null | undefined) => {
       const systemFields = templateType === 'PARCELS' ? CSV_PARCEL_FIELDS : CSV_CROP_FIELDS;
       const rows: MappingRow[] = [];
@@ -98,7 +148,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           usedKeys.add(field.key);
       });
 
-      // Add extra mappings found in the template that are not system fields
       Object.entries(safeMappings).forEach(([key, header]) => {
           if (!usedKeys.has(key)) {
               rows.push({
@@ -133,12 +182,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   };
 
   const handleCopyTemplate = (e: React.MouseEvent, template: CsvTemplate) => {
-      e.stopPropagation(); // Prevent opening edit mode for the original
-      
-      setEditingTemplate(null); // We are creating a NEW one
+      e.stopPropagation();
+      setEditingTemplate(null);
       setIsCreatingTemplate(true);
-      
-      // Pre-fill with data from the copied template
       setFormName(`${template.name} (Kopia)`);
       setFormSeparator(template.separator);
       setFormYear(template.year || selectedGlobalYear);
@@ -204,7 +250,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       if(fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmitTemplate = (e: React.FormEvent) => {
+  const handleSubmitTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     const newMappings: Record<string, string> = {};
     mappingRows.forEach(row => {
@@ -226,26 +272,33 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
         mappings: newMappings
     };
 
-    onSaveTemplate(templateToSave);
-    setEditingTemplate(null);
-    setIsCreatingTemplate(false);
-    setFormName('');
-    setMappingRows([]);
+    setIsProcessing(true);
+    try {
+        await api.saveTemplate(templateToSave);
+        onSaveTemplate(templateToSave);
+        setEditingTemplate(null);
+        setIsCreatingTemplate(false);
+        setFormName('');
+        setMappingRows([]);
+    } catch (e) {
+        alert("Błąd zapisu szablonu.");
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   // --- RATES LOGIC ---
-
   const handleEditRate = (rate: SubsidyRate) => {
       setEditingRate(rate);
       setIsCreatingRate(false);
-      setRateForm(rate);
+      setRateForm({...rate});
   };
 
   const handleCreateRate = () => {
       setEditingRate(null);
       setIsCreatingRate(true);
       setRateForm({
-          id: `R${Date.now()}`,
+          id: `R${Date.now()}_${Math.floor(Math.random()*1000)}`,
           name: '',
           rate: 0,
           unit: 'PLN/ha',
@@ -258,9 +311,43 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       });
   };
 
-  const handleCloneYear = () => {
-      if(window.confirm(`Czy chcesz skopiować stawki z roku ${selectedRateYear - 1} do roku ${selectedRateYear}?`)) {
-         alert("Funkcja klonowania stawek zostanie zaimplementowana po stronie backendu.");
+  const handleCloneRates = async () => {
+      const sourceRates = rates.filter(r => r.year === sourceYearForClone);
+      if (sourceRates.length === 0) {
+          alert(`Brak stawek w roku źródłowym ${sourceYearForClone}.`);
+          return;
+      }
+
+      const existingInTarget = rates.filter(r => r.year === selectedRateYear);
+      if (existingInTarget.length > 0) {
+          if (!window.confirm(`Rok ${selectedRateYear} posiada już ${existingInTarget.length} stawek. Czy chcesz dodać do nich stawki z roku ${sourceYearForClone}?`)) {
+              return;
+          }
+      }
+
+      setIsProcessing(true);
+      try {
+          const now = Date.now();
+          const clonedRates: SubsidyRate[] = sourceRates.map((r, idx) => ({
+              ...r,
+              id: `R${now}_C_${idx}_${Math.random().toString(36).substr(2, 5)}`,
+              year: selectedRateYear
+          }));
+
+          for (const rate of clonedRates) {
+              await api.saveRate(rate);
+          }
+
+          const updatedRates = await api.getRates();
+          setRates(updatedRates);
+          
+          setShowCloneModal(false);
+          alert(`Pomyślnie skopiowano ${clonedRates.length} stawek do kampanii ${selectedRateYear}.`);
+      } catch (e) {
+          console.error(e);
+          alert("Wystąpił błąd podczas kopiowania stawek.");
+      } finally {
+          setIsProcessing(false);
       }
   };
 
@@ -268,27 +355,49 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       e.preventDefault();
       if (!rateForm.name || !rateForm.id) return;
       
-      const rateToSave = rateForm as SubsidyRate;
-      await api.saveRate(rateToSave);
-      
-      setRates(prev => {
-          const exists = prev.find(r => r.id === rateToSave.id);
-          if (exists) return prev.map(r => r.id === rateToSave.id ? rateToSave : r);
-          return [...prev, rateToSave];
-      });
+      setIsProcessing(true);
+      try {
+          const rateToSave = rateForm as SubsidyRate;
+          const savedRate = await api.saveRate(rateToSave);
+          
+          if (savedRate) {
+            setRates(prev => {
+                const idx = prev.findIndex(r => r.id === savedRate.id);
+                if (idx !== -1) {
+                    const next = [...prev];
+                    next[idx] = savedRate;
+                    return next;
+                }
+                return [...prev, savedRate];
+            });
+            alert("Zmiany zostały zapisane pomyślnie.");
+          }
 
-      setEditingRate(null);
-      setIsCreatingRate(false);
-      setRateForm({});
+          setEditingRate(null);
+          setIsCreatingRate(false);
+          setRateForm({});
+      } catch (e) {
+          console.error(e);
+          alert("Błąd zapisu stawki.");
+      } finally {
+          setIsProcessing(false);
+      }
   };
 
   const handleDeleteRate = async (id: string) => {
       if (window.confirm("Usunąć stawkę?")) {
-          await api.deleteRate(id);
-          setRates(prev => prev.filter(r => r.id !== id));
-          if (editingRate?.id === id) {
-              setEditingRate(null);
-              setIsCreatingRate(false);
+          setIsProcessing(true);
+          try {
+              await api.deleteRate(id);
+              setRates(prev => prev.filter(r => r.id !== id));
+              if (editingRate?.id === id) {
+                  setEditingRate(null);
+                  setIsCreatingRate(false);
+              }
+          } catch (e) {
+              alert("Błąd podczas usuwania.");
+          } finally {
+              setIsProcessing(false);
           }
       }
   };
@@ -310,7 +419,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const handleEditCrop = (crop: CropDefinition) => {
       setEditingCrop(crop);
       setIsCreatingCrop(false);
-      setCropForm(crop);
+      setCropForm({...crop});
   };
 
   const handleCreateCrop = () => {
@@ -329,27 +438,48 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       e.preventDefault();
       if (!cropForm.name || !cropForm.id) return;
 
-      const cropToSave = cropForm as CropDefinition;
-      await api.saveCrop(cropToSave);
+      setIsProcessing(true);
+      try {
+          const cropToSave = cropForm as CropDefinition;
+          const saved = await api.saveCrop(cropToSave);
 
-      setCrops(prev => {
-          const exists = prev.find(c => c.id === cropToSave.id);
-          if (exists) return prev.map(c => c.id === cropToSave.id ? cropToSave : c);
-          return [...prev, cropToSave];
-      });
-      
-      setEditingCrop(null);
-      setIsCreatingCrop(false);
-      setCropForm({});
+          if (saved) {
+            setCrops(prev => {
+                const idx = prev.findIndex(c => c.id === saved.id);
+                if (idx !== -1) {
+                    const next = [...prev];
+                    next[idx] = saved;
+                    return next;
+                }
+                return [...prev, saved];
+            });
+            alert("Roślina została zapisana w słowniku.");
+          }
+          
+          setEditingCrop(null);
+          setIsCreatingCrop(false);
+          setCropForm({});
+      } catch (e) {
+          alert("Błąd zapisu rośliny.");
+      } finally {
+          setIsProcessing(false);
+      }
   };
 
   const handleDeleteCrop = async (id: string) => {
       if (window.confirm("Usunąć uprawę ze słownika?")) {
-          await api.deleteCrop(id);
-          setCrops(prev => prev.filter(c => c.id !== id));
-          if (editingCrop?.id === id) {
-              setEditingCrop(null);
-              setIsCreatingCrop(false);
+          setIsProcessing(true);
+          try {
+              await api.deleteCrop(id);
+              setCrops(prev => prev.filter(c => c.id !== id));
+              if (editingCrop?.id === id) {
+                  setEditingCrop(null);
+                  setIsCreatingCrop(false);
+              }
+          } catch (e) {
+              alert("Błąd podczas usuwania.");
+          } finally {
+              setIsProcessing(false);
           }
       }
   };
@@ -378,12 +508,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
               Zarządzanie systemem i konfiguracja.
           </p>
         </div>
+        {isProcessing && (
+            <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold border border-emerald-100 shadow-sm animate-pulse">
+                <Loader2 size={16} className="animate-spin" /> Przetwarzanie...
+            </div>
+        )}
       </div>
 
-      <div className="flex space-x-1 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="flex space-x-1 bg-slate-100 p-1 rounded-xl w-fit overflow-x-auto max-w-full">
           <button
             onClick={() => setActiveMainTab('CSV')}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+            disabled={isProcessing}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
                 activeMainTab === 'CSV' 
                 ? 'bg-white text-emerald-700 shadow-sm' 
                 : 'text-slate-500 hover:text-slate-700'
@@ -394,18 +530,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           </button>
           <button
             onClick={() => setActiveMainTab('RATES')}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+            disabled={isProcessing}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
                 activeMainTab === 'RATES' 
                 ? 'bg-white text-emerald-700 shadow-sm' 
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Coins size={18} />
-            Stawki i Płatności
+            Stawki
           </button>
           <button
             onClick={() => setActiveMainTab('CROPS')}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
+            disabled={isProcessing}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
                 activeMainTab === 'CROPS' 
                 ? 'bg-white text-emerald-700 shadow-sm' 
                 : 'text-slate-500 hover:text-slate-700'
@@ -414,14 +552,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
             <Sprout size={18} />
             Słownik Upraw
           </button>
+          <button
+            onClick={() => setActiveMainTab('AUDIT')}
+            disabled={isProcessing}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeMainTab === 'AUDIT' 
+                ? 'bg-white text-emerald-700 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Share2 size={18} />
+            Audyt DAG
+          </button>
+          <button
+            onClick={() => setActiveMainTab('RAG')}
+            disabled={isProcessing}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeMainTab === 'RAG' 
+                ? 'bg-white text-emerald-700 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <BrainCircuit size={18} />
+            Baza RAG
+          </button>
       </div>
 
       {activeMainTab === 'CSV' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
              <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex space-x-2 mb-6 border-b border-slate-100 pb-2">
-                    <button onClick={() => { setActiveCsvTab('PARCELS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'PARCELS' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500'}`}>Ewidencja Gruntów</button>
-                    <button onClick={() => { setActiveCsvTab('CROPS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'CROPS' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500'}`}>Struktura Zasiewów</button>
+                    <button onClick={() => { setActiveCsvTab('PARCELS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'PARCELS' ? 'border-emerald-50 text-emerald-700' : 'border-transparent text-slate-500'}`}>Ewidencja Gruntów</button>
+                    <button onClick={() => { setActiveCsvTab('CROPS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'CROPS' ? 'border-emerald-50 text-emerald-700' : 'border-transparent text-slate-500'}`}>Struktura Zasiewów</button>
                 </div>
                 <div className="space-y-3">
                     {activeTemplates.map(tpl => (
@@ -555,7 +717,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                     Pola systemowe (zablokowane) są wymagane do poprawnego działania aplikacji.
                                 </div>
                             </div>
-                            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => { setIsCreatingTemplate(false); setEditingTemplate(null); }} className="px-4 py-2 text-slate-500">Anuluj</button><button type="submit" className="bg-emerald-600 text-white px-6 py-2 rounded-lg">Zapisz Szablon</button></div>
+                            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => { setIsCreatingTemplate(false); setEditingTemplate(null); }} className="px-4 py-2 text-slate-500">Anuluj</button><button type="submit" disabled={isProcessing} className="bg-emerald-600 text-white px-6 py-2 rounded-lg flex items-center gap-2">{isProcessing && <Loader2 size={16} className="animate-spin" />} Zapisz Szablon</button></div>
                         </form>
                     </div>
                 ) : (
@@ -570,12 +732,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
               <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[750px]">
                   
                   <div className="mb-4 pb-4 border-b border-slate-100">
-                      <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Rok Kampanii</label>
+                      <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Rok Kampanii (Cel)</label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                             <select 
                                 value={selectedRateYear}
                                 onChange={(e) => { setSelectedRateYear(Number(e.target.value)); setEditingRate(null); setIsCreatingRate(false); }}
+                                disabled={isProcessing}
                                 className="w-full appearance-none bg-slate-50 border border-slate-300 text-slate-700 py-2.5 pl-4 pr-10 rounded-lg font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
                             >
                                 {availableYears.map(year => (
@@ -584,8 +747,44 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                             </select>
                             <Calendar className="absolute right-3 top-2.5 text-slate-400 pointer-events-none" size={18} />
                         </div>
+                        <button 
+                            onClick={() => setShowCloneModal(true)}
+                            disabled={isProcessing}
+                            className="bg-emerald-50 text-emerald-700 p-2.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                            title="Kopiuj stawki z innego roku"
+                        >
+                            <Copy size={20} />
+                        </button>
                       </div>
                   </div>
+
+                  {showCloneModal && (
+                      <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl animate-in slide-in-from-top-2 duration-200">
+                          <div className="flex justify-between items-center mb-3">
+                              <h4 className="text-xs font-black text-emerald-800 uppercase tracking-widest">Kopiuj Słownik Stawek</h4>
+                              <button onClick={() => setShowCloneModal(false)} className="text-emerald-400 hover:text-emerald-600"><X size={16}/></button>
+                          </div>
+                          <div className="space-y-3">
+                              <div>
+                                  <label className="text-[10px] font-bold text-emerald-600 uppercase block mb-1">Źródło (Kopiuj z):</label>
+                                  <select 
+                                      value={sourceYearForClone}
+                                      onChange={(e) => setSourceYearForClone(Number(e.target.value))}
+                                      className="w-full text-xs font-bold border-emerald-200 rounded-lg p-2 focus:ring-1 focus:ring-emerald-500 outline-none"
+                                  >
+                                      {availableYears.filter(y => y !== selectedRateYear).map(y => <option key={y} value={y}>{y}</option>)}
+                                  </select>
+                              </div>
+                              <button 
+                                  onClick={handleCloneRates}
+                                  disabled={isProcessing}
+                                  className="w-full bg-emerald-600 text-white py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
+                              >
+                                  {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14}/>} Rozpocznij Kopiowanie
+                              </button>
+                          </div>
+                      </div>
+                  )}
 
                   <h3 className="font-bold text-slate-800 mb-4 flex justify-between items-center">
                       <span>Lista Stawek ({selectedRateYear})</span>
@@ -623,7 +822,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                     <div 
                                         key={rate.id}
                                         onClick={() => handleEditRate(rate)}
-                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-50' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
                                     >
                                         <div>
                                             <div className="font-semibold text-slate-800 text-sm line-clamp-1" title={rate.name}>{rate.name}</div>
@@ -644,7 +843,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                     <div 
                                         key={rate.id}
                                         onClick={() => handleEditRate(rate)}
-                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center relative group ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                                        className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center relative group ${editingRate?.id === rate.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-50' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
                                     >
                                         <div className="w-full">
                                             <div className="font-semibold text-slate-800 text-sm line-clamp-1 flex items-center gap-1">
@@ -675,7 +874,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                           </div>
                       )}
                   </div>
-                  <button onClick={handleCreateRate} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Stawkę ({selectedRateYear})</button>
+                  <button onClick={handleCreateRate} disabled={isProcessing} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Stawkę ({selectedRateYear})</button>
               </div>
 
               <div className="lg:col-span-2">
@@ -688,7 +887,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                             </h3>
                             <div className="flex gap-2">
                                 {editingRate && (
-                                    <button onClick={() => handleDeleteRate(editingRate.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                                    <button onClick={() => handleDeleteRate(editingRate.id)} disabled={isProcessing} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18}/></button>
                                 )}
                                 <button onClick={() => { setIsCreatingRate(false); setEditingRate(null); }} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg"><X size={24}/></button>
                             </div>
@@ -816,9 +1015,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                                     className="w-full text-xs text-slate-500 border-t border-slate-100 pt-2 mt-2 focus:outline-none bg-transparent"
                                                 />
                                             </div>
-                                            <p className="text-[10px] text-slate-400 mt-1">
-                                                Zaznacz kody powyżej lub wpisz ręcznie.
-                                            </p>
                                         </div>
                                         <div className="col-span-12">
                                             <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
@@ -838,7 +1034,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                               
                               <div className="pt-4 flex justify-end gap-3">
                                   <button type="button" onClick={() => { setIsCreatingRate(false); setEditingRate(null); }} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Anuluj</button>
-                                  <button type="submit" className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm font-medium">Zapisz Zmiany</button>
+                                  <button type="submit" disabled={isProcessing} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm font-medium flex items-center gap-2">
+                                      {isProcessing && <Loader2 size={16} className="animate-spin" />} Zapisz Zmiany
+                                  </button>
                               </div>
                           </form>
                       </div>
@@ -865,7 +1063,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                            <div 
                                 key={crop.id}
                                 onClick={() => handleEditCrop(crop)}
-                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingCrop?.id === crop.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
+                                className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${editingCrop?.id === crop.id ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-50' : 'bg-white border-slate-200 hover:border-emerald-300'}`}
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-slate-100 rounded text-slate-500">
@@ -885,7 +1083,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                            </div>
                        ))}
                   </div>
-                  <button onClick={handleCreateCrop} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Roślinę</button>
+                  <button onClick={handleCreateCrop} disabled={isProcessing} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Roślinę</button>
                </div>
 
                <div className="lg:col-span-2">
@@ -898,7 +1096,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                 </h3>
                                 <div className="flex gap-2">
                                     {editingCrop && (
-                                        <button onClick={() => handleDeleteCrop(editingCrop.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18}/></button>
+                                        <button onClick={() => handleDeleteCrop(editingCrop.id)} disabled={isProcessing} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18}/></button>
                                     )}
                                     <button onClick={() => { setIsCreatingCrop(false); setEditingCrop(null); }} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg"><X size={24}/></button>
                                 </div>
@@ -937,7 +1135,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                   </div>
                                   
                                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                      <label className="block text-sm font-medium text-slate-700 mb-3">Cechy dodatkowe (do płatności)</label>
+                                      <label className="block text-sm font-medium text-slate-700 mb-3">Cechy dodatkowe</label>
                                       <div className="space-y-2">
                                           <label className="flex items-center space-x-2 cursor-pointer">
                                               <input 
@@ -946,7 +1144,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                                 onChange={e => setCropForm({...cropForm, isLegume: e.target.checked})}
                                                 className="rounded text-emerald-600 focus:ring-emerald-500" 
                                               />
-                                              <span className="text-sm text-slate-700">Roślina Bobowata (Strączkowa)</span>
+                                              <span className="text-sm text-slate-700">Roślina Bobowata</span>
                                           </label>
                                           <label className="flex items-center space-x-2 cursor-pointer">
                                               <input 
@@ -955,14 +1153,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                                 onChange={e => setCropForm({...cropForm, isCatchCrop: e.target.checked})}
                                                 className="rounded text-emerald-600 focus:ring-emerald-500" 
                                               />
-                                              <span className="text-sm text-slate-700">Nadaje się na międzyplon / poplon</span>
+                                              <span className="text-sm text-slate-700">Poplon / Międzyplon</span>
                                           </label>
                                       </div>
                                   </div>
 
                                   <div className="pt-4 flex justify-end gap-3">
                                       <button type="button" onClick={() => { setIsCreatingCrop(false); setEditingCrop(null); }} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Anuluj</button>
-                                      <button type="submit" className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm font-medium">Zapisz Roślinę</button>
+                                      <button type="submit" disabled={isProcessing} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm font-medium flex items-center gap-2">
+                                          {isProcessing && <Loader2 size={16} className="animate-spin" />} Zapisz Roślinę
+                                      </button>
                                   </div>
                               </form>
                         </div>
@@ -973,6 +1173,58 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                       </div>
                     )}
                </div>
+          </div>
+      )}
+
+      {activeMainTab === 'AUDIT' && (
+          <div className="space-y-6">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                  <div className="flex flex-col md:flex-row gap-4 items-end mb-8">
+                      <div className="flex-1">
+                          <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Wybierz Rolnika do audytu</label>
+                          <div className="relative">
+                            <select 
+                                value={selectedAuditClientId}
+                                onChange={(e) => { setSelectedAuditClientId(e.target.value); setAuditFarmData(null); }}
+                                className="w-full appearance-none bg-slate-50 border border-slate-300 text-slate-700 py-3 pl-10 pr-10 rounded-xl font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
+                            >
+                                <option value="">-- Wybierz z listy --</option>
+                                {clients.map(c => <option key={c.producerId} value={c.producerId}>{c.lastName} {c.firstName} ({c.producerId})</option>)}
+                            </select>
+                            <User className="absolute left-3 top-3.5 text-slate-400" size={20} />
+                          </div>
+                      </div>
+                      <button 
+                        onClick={handleStartAudit}
+                        disabled={!selectedAuditClientId || isAuditLoading}
+                        className="bg-slate-900 text-white px-8 py-3 rounded-xl font-black text-sm uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all active:scale-95 disabled:opacity-50"
+                      >
+                          {isAuditLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />} Analizuj DAG
+                      </button>
+                  </div>
+
+                  {auditFarmData ? (
+                      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                          <HierarchyExplorer 
+                              farmData={auditFarmData} 
+                              selectedYear={selectedGlobalYear} 
+                              // Opcjonalne wstrzykiwanie stawek i dokumentów dla pełnego audytu admina
+                          />
+                      </div>
+                  ) : (
+                      <div className="h-[400px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 p-12 text-center">
+                          <Share2 size={64} className="mb-4 opacity-10" />
+                          <h4 className="font-bold text-slate-500">Silnik Audytu Hierarchii (DAG)</h4>
+                          <p className="max-w-sm mt-2 text-sm">Wybierz gospodarstwo, aby wygenerować formalny graf zależności kampanii ${selectedGlobalYear}. System sprawdzi powiązania między e-wnioskiem, działkami a stawkami.</p>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
+
+      {activeMainTab === 'RAG' && (
+          <div className="animate-in fade-in duration-500">
+             <SemanticExplorer />
           </div>
       )}
     </div>

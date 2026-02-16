@@ -1,176 +1,214 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { FarmData, OptimizationResult } from "../types";
-import { SUBSIDY_RATES_2026 } from "../constants";
+import { FarmData, OptimizationResult, SemanticQueryResult, KnowledgeChunk, FarmerApplicationData, FieldOperation } from "../types";
+import { SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, SUBSIDY_RATES_2024 } from "../constants";
+import { ragEngine } from "./ragEngine";
 
-// The API key must be obtained exclusively from the environment variable process.env.API_KEY.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const getFarmOptimization = async (farmData: FarmData): Promise<OptimizationResult> => {
-  const model = "gemini-3-flash-preview";
-  
-  const ratesString = SUBSIDY_RATES_2026.map(r => `${r.name}: ${r.rate} ${r.unit}`).join(', ');
-
-  const prompt = `
-    Jesteś ekspertem ds. płatności obszarowych i ekoschematów w Polsce w ramach WPR 2023-2027.
-    Dokonaj optymalizacji dla sezonu 2026, korzystając z poniższej bazy danych (historia pól, stawki, profil gospodarstwa).
-    
-    Tabela: Gospodarstwo
-    - ID Producenta: ${farmData.profile.producerId}
-    - Powierzchnia UR: ${farmData.profile.totalAreaUR} ha
-    - Wymagane punkty wejścia (25% * 5pkt): ${farmData.profile.entryConditionPoints} pkt
-
-    Tabela: Stawki_2026 (Użyj tych wartości do kalkulacji)
-    ${ratesString}
-
-    Tabela: Pola i Historia (N-4: lata 2021-2025)
-    ${JSON.stringify(farmData.fields, null, 2)}
-
-    Zadania:
-    1. Przeanalizuj historię pod kątem wymogów.
-    2. Zaproponuj ekoschematy z Tabeli Stawki_2026 dla każdej działki.
-    3. Upewnij się, że gospodarstwo uzbierało minimum ${farmData.profile.entryConditionPoints} punktów.
-    
-    Output JSON:
-    - totalEstimatedSubsidy: suma (PLN).
-    - recommendations: lista z polami, sugerowane ekoschematy, uzasadnienie, zysk.
-    - complianceNotes: ostrzeżenia.
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            totalEstimatedSubsidy: { type: Type.NUMBER },
-            recommendations: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  fieldId: { type: Type.STRING },
-                  fieldName: { type: Type.STRING },
-                  suggestedEcoSchemes: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  reasoning: { type: Type.STRING },
-                  potentialGain: { type: Type.NUMBER }
-                }
-              }
-            },
-            complianceNotes: { type: Type.STRING }
-          }
-        }
-      }
-    });
-
-    if (response.text) {
-      return JSON.parse(response.text) as OptimizationResult;
+/**
+ * Embedding pojedynczego tekstu.
+ */
+export const getEmbedding = async (text: string, isQuery: boolean = false): Promise<number[]> => {
+    try {
+        // Fix: Changed 'contents' to 'content' and updated response access to 'embedding.values'
+        const response = await ai.models.embedContent({
+            model: "text-embedding-004",
+            content: { parts: [{ text }] },
+            taskType: isQuery ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT"
+        });
+        
+        return response.embedding?.values || [];
+    } catch (error: any) {
+        console.error("Embedding error:", error);
+        return [];
     }
-    throw new Error("Empty response from AI");
-  } catch (error) {
-    console.error("Gemini optimization error:", error);
-    throw error;
-  }
 };
 
-export const analyzeDocument = async (base64Data: string, mimeType: string): Promise<{
-    category: 'WNIOSEK' | 'MAPA' | 'REJESTR' | 'INNE';
-    producerId?: string;
-    campaignYear?: string;
-    summary: string;
-}> => {
+/**
+ * Batch embedding.
+ */
+export const getBatchEmbeddings = async (texts: string[]): Promise<number[][]> => {
+    if (!texts || texts.length === 0) return [];
+    
+    try {
+        const results = await Promise.all(texts.map(text => getEmbedding(text)));
+        return results;
+    } catch (error: any) {
+        console.error("Batch embedding error:", error);
+        return texts.map(() => []);
+    }
+};
+
+/**
+ * Wyodrębnia tekst z PDF/Obrazu (OCR).
+ */
+export const extractRawText = async (base64Data: string, mimeType: string): Promise<string> => {
     const model = "gemini-3-flash-preview";
+    const supportedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    const safeMimeType = supportedTypes.includes(mimeType) ? mimeType : 'application/pdf';
 
-    const prompt = `
-        Przeanalizuj załączony dokument rolniczy. 
-        Zidentyfikuj:
-        1. Typ dokumentu (wniosek o płatności, mapa, rejestr zabiegów lub inne).
-        2. Numer producenta (EP) - to 9-cyfrowy unikalny numer (np. 012345678).
-        3. Rok kampanii rolniczej (np. 2024, 2025).
-        4. Krótkie podsumowanie zawartości (jedno zdanie).
-
-        Zwróć dane w formacie JSON.
-    `;
+    const prompt = "Wyodrębnij tekst z tego dokumentu rolniczego. Zwróć czysty tekst bez komentarzy.";
 
     try {
         const response = await ai.models.generateContent({
             model: model,
             contents: {
                 parts: [
-                    { inlineData: { data: base64Data, mimeType: mimeType } },
+                    { inlineData: { data: base64Data, mimeType: safeMimeType } },
                     { text: prompt }
                 ]
-            },
+            }
+        });
+        return response.text || "";
+    } catch (error: any) {
+        console.error("Gemini OCR Error:", error);
+        throw new Error("Nie udało się odczytać tekstu.");
+    }
+};
+
+/**
+ * Funkcja do inteligentnego parsowania notatek rolnika na ustrukturyzowane zabiegi.
+ */
+export const parseOperationNote = async (note: string, fieldNames: string[]): Promise<Partial<FieldOperation>> => {
+    const model = "gemini-3-flash-preview";
+    const prompt = `Przetwórz notatkę na zabieg agrotechniczny: "${note}". Pola: ${fieldNames.join(", ")}. Zwróć JSON.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        category: { 
-                            type: Type.STRING, 
-                            enum: ['WNIOSEK', 'MAPA', 'REJESTR', 'INNE'],
-                            description: 'Kategoria dokumentu' 
-                        },
-                        producerId: { type: Type.STRING, description: '9-cyfrowy numer EP' },
-                        campaignYear: { type: Type.STRING, description: 'Rok kampanii (4 cyfry)' },
-                        summary: { type: Type.STRING, description: 'Krótki opis' }
-                    },
-                    required: ["category", "summary"]
+                        type: { type: Type.STRING },
+                        productName: { type: Type.STRING },
+                        dosage: { type: Type.STRING },
+                        unit: { type: Type.STRING },
+                        fieldName: { type: Type.STRING },
+                        isEcoSchemeRelevant: { type: Type.BOOLEAN }
+                    }
                 }
             }
         });
-
-        if (response.text) {
-            return JSON.parse(response.text);
-        }
-        throw new Error("Brak odpowiedzi od AI");
-    } catch (error) {
-        console.error("Document analysis error:", error);
-        return { category: 'INNE', summary: 'Nie udało się przeprowadzić analizy AI.' };
+        return JSON.parse(response.text || "{}");
+    } catch (e) {
+        return {};
     }
 };
 
-export const chatWithAdvisor = async (history: {role: 'user' | 'model', text: string}[], message: string, farmData: FarmData): Promise<string> => {
+/**
+ * Optymalizacja dopłat z użyciem JSON Schema.
+ * Przełączono na model flash dla większej dostępności (uniknięcie błędu 503).
+ */
+export const getFarmOptimization = async (farmData: FarmData): Promise<OptimizationResult> => {
+    // Model flash jest bardziej responsywny i rzadziej zwraca 503 przy wysokim obciążeniu
     const model = "gemini-3-flash-preview";
     
-    // Przygotowanie kontekstu gospodarstwa dla AI
-    const farmContext = farmData.profile.producerId ? `
-      KONTEKST AKTUALNEGO GOSPODARSTWA:
-      - Nazwa: ${farmData.farmName}
-      - Numer EP: ${farmData.profile.producerId}
-      - Całkowita powierzchnia UR: ${farmData.profile.totalAreaUR} ha
-      
-      DANE PÓL (HISTORIA 2024-2025):
-      ${farmData.fields.map(f => {
-        const h24 = f.history.find(h => h.year === 2024);
-        const h25 = f.history.find(h => h.year === 2025);
-        return `- Działka ${f.registrationNumber} (${f.name}): 
-          2024: ${h24 ? h24.crop : 'brak danych'}, pow: ${h24?.eligibleArea || '?' } ha
-          2025: ${h25 ? h25.crop : 'brak danych'}, pow: ${h25?.eligibleArea || '?' } ha`;
-      }).join('\n')}
-    ` : "Brak danych konkretnego gospodarstwa (tryb ogólny).";
+    const activeFields = farmData.fields.map(f => ({
+        id: f.id,
+        name: f.name,
+        area: f.area,
+        eligibleArea: f.eligibleArea,
+        crop: f.crop,
+        currentEcoSchemes: f.history?.[0]?.appliedEcoSchemes || []
+    }));
 
-    const contents = [
-      { role: 'user', parts: [{ text: `Jesteś wirtualnym doradcą rolniczym AgroOptima. Twoim celem jest pomoc rolnikowi o EP: ${farmData.profile.producerId}. 
-        Odpowiadaj krótko, rzeczowo i zgodnie z wytycznymi ARiMR na lata 2023-2027.
-        Znasz dane tego gospodarstwa i powinieneś się do nich odnosić, jeśli użytkownik o to zapyta.
-        
-        ${farmContext}` }] },
-      ...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
-      { role: 'user', parts: [{ text: message }] }
-    ];
+    const prompt = `Jesteś ekspertem dopłat bezpośrednich WPR 2023-2027 w Polsce. 
+    Przeanalizuj dane gospodarstwa: ${JSON.stringify(activeFields)}.
+    Zaproponuj optymalne EKOSCHEMATY dla każdej działki, aby maksymalizować zysk. 
+    Zwróć uwagę na zakazy łączenia (np. wymieszanie obornika i nawozy płynne).
+    Zwróć precyzyjny JSON.`;
 
     try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: contents as any 
-      });
-      return response.text || "Przepraszam, nie potrafię teraz odpowiedzieć.";
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: { 
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        totalEstimatedSubsidy: { type: Type.NUMBER },
+                        recommendations: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    fieldId: { type: Type.STRING },
+                                    fieldName: { type: Type.STRING },
+                                    suggestedEcoSchemes: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                    reasoning: { type: Type.STRING },
+                                    potentialGain: { type: Type.NUMBER }
+                                },
+                                required: ["fieldId", "fieldName", "suggestedEcoSchemes", "reasoning", "potentialGain"]
+                            }
+                        },
+                        complianceNotes: { type: Type.STRING }
+                    },
+                    required: ["totalEstimatedSubsidy", "recommendations", "complianceNotes"]
+                }
+            }
+        });
+        
+        const text = response.text;
+        if (!text) throw new Error("Empty response from AI");
+        return JSON.parse(text);
+    } catch (error: any) {
+        console.error("Optimization AI Error:", error);
+        // Jeśli flash też rzuci 503, rzucamy błąd do UI
+        throw error;
+    }
+};
+
+/**
+ * Czat doradcy z RAG.
+ */
+export const chatWithAdvisor = async (history: any[], message: string, farmData: FarmData): Promise<SemanticQueryResult> => {
+    const model = "gemini-3-flash-preview";
+    const contextChunks = await ragEngine.getRelevantContextSemantic(message, 5);
+    const contextText = contextChunks.map(c => c.content).join('\n\n');
+
+    const systemInstruction = `Jesteś doradcą AgroOptima. Twoja wiedza pochodzi z tych dokumentów:\n${contextText}`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: [...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: message }] }],
+            config: { systemInstruction }
+        });
+        return { answer: response.text || "", citations: contextChunks };
     } catch (error) {
-      console.error("Chat error:", error);
-      return "Wystąpił błąd komunikacji z asystentem AI.";
+        return { answer: "Błąd komunikacji z modelem.", citations: [] };
+    }
+};
+
+/**
+ * Analiza pogody.
+ */
+export const analyzeAgroWeather = async (weatherData: any, location: string, crops: string[]): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: `Analiza pogody dla ${location}, uprawy: ${crops.join(', ')}. Dane: ${JSON.stringify(weatherData)}. Podaj 3 krótkie zalecenia.`
+        });
+        return response.text || "Brak analizy.";
+    } catch (e) {
+        return "Serwis pogodowy niedostępny.";
+    }
+};
+
+export const autofillApplicationFromRag = async (farmData: FarmData): Promise<Partial<FarmerApplicationData>> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: "Uzupełnij pola wniosku na podstawie dokumentów w bazie. Zwróć JSON.",
+            config: { responseMimeType: "application/json" }
+        });
+        return JSON.parse(response.text || "{}");
+    } catch (e) {
+        return {};
     }
 };

@@ -10,109 +10,182 @@ export interface User {
     role: UserRole;
 }
 
+export type OperationType = 'NAWOZENIE' | 'OPRYSK' | 'SIEW' | 'UPRAWA' | 'ZBIOR' | 'INNE';
+
+export interface FieldOperation {
+    id: string;
+    fieldId: string;
+    fieldName: string;
+    date: string;
+    type: OperationType;
+    productName: string;
+    dosage: string;
+    unit: string;
+    operatorName?: string;
+    photoUrl?: string;
+    isEcoSchemeRelevant: boolean;
+    linkedEcoScheme?: string;
+}
+
+export interface FarmerApplicationData {
+    submissionType: 'Wniosek' | 'Zmiana' | 'Wycofanie';
+    commitments: {
+        rsk_prow: boolean;
+        rsk_wpr: boolean;
+        eko_prow: boolean;
+        eko_wpr: boolean;
+        zalesienie: boolean;
+        premie_lesne: boolean;
+    };
+    directPayments: {
+        pwd_red: boolean;
+        mro: boolean;
+        ekoschematy: boolean;
+        carbon_farming: {
+            active: boolean;
+            tuz_obsada: boolean;
+            miedzyplony: boolean;
+            plan_nawozenia: boolean;
+            zroznicowana_struktura: boolean;
+            obornik_12h: boolean;
+            nawozy_plynne: boolean;
+            uproszczone_uprawy: boolean;
+            wymieszanie_slomy: boolean;
+        };
+        ipr: boolean;
+        bou: boolean;
+        retencjonowanie: boolean;
+        gwp: boolean;
+    };
+    nationalSupport: {
+        upp: boolean;
+        tyton: boolean;
+    };
+    ruralDevelopment: {
+        onw: boolean;
+        prsk1420: boolean;
+        re1420: boolean;
+        zrsk2327: boolean;
+        re2327: boolean;
+    };
+    youngFarmerStatement: string;
+    rskChangeStatement: boolean;
+    gaec7Resignation: boolean;
+}
+
 export interface AuthResponse {
     token: string;
     user: User;
 }
 
-// Tabela: Słownik Upraw
-export interface CropDefinition {
+export interface KnowledgeChunk {
     id: string;
-    name: string; // np. "Pszenica ozima"
-    type: string; // np. "Zboża"
-    isLegume: boolean; // Czy bobowata (do płatności)
-    isCatchCrop: boolean; // Czy nadaje się na międzyplon
+    documentId: string;
+    documentName: string;
+    content: string;
+    category: string;
+    embedding?: number[];
+    metadata: {
+        page?: number;
+        section?: string;
+        timestamp: string;
+    };
+    tokens: number;
 }
 
-// Sub-structure for split parcels (ARiMR logic: Reference Parcel -> Multiple Agricultural Parcels)
+export interface SemanticQueryResult {
+    answer: string;
+    citations: KnowledgeChunk[];
+}
+
+export interface CsvMappingField {
+    key: string;
+    label: string;
+    required: boolean;
+}
+
+export type CsvTemplateType = 'PARCELS' | 'CROPS';
+
+export type TaskPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export type TaskType = 'AGRO' | 'DEADLINE' | 'CONTROL';
+
+export interface HierarchyNode {
+    id: string;
+    type: 'FARM' | 'COMMUNE' | 'PARCEL_REF' | 'AGRI_PARCEL' | 'ECO_SCHEME' | 'FINANCIAL_RESULT';
+    label: string;
+    value?: string | number;
+    status: 'VALID' | 'WARNING' | 'ERROR' | 'INFO';
+    evidence: {
+        source: string;
+        timestamp: string;
+        ruleChecked?: string;
+        details?: string;
+        semanticMatches?: KnowledgeChunk[];
+    };
+    children?: string[];
+}
+
+export interface HierarchyGraph {
+    nodes: HierarchyNode[];
+    rootId: string;
+}
+
+export interface CropDefinition {
+    id: string;
+    name: string;
+    type: string;
+    isLegume: boolean;
+    isCatchCrop: boolean;
+}
+
 export interface FieldCropPart {
-    designation: string; // Oznaczenie (A, B, C...)
-    crop: string; // Roślina
-    area: number; // Wielkość zadeklarowanej powierzchni w granicach działki referencyjnej
+    designation: string;
+    crop: string;
+    area: number;
     ecoSchemes: string[];
-    
-    // Additional optional details per part
     designationZal?: string; 
     paymentList?: string;
     plantMix?: string;
 }
 
-// Tabela: Dzialki_Historia
 export interface FieldHistoryEntry {
-  year: number; // 2021, 2022, 2023, 2024, 2025
-  crop: string; // Dominant crop (or "Mieszana" if multiple parts)
-  appliedEcoSchemes: string[]; // E_USU, E_IPR, E_OPN (Union of all parts)
-  
-  // Year-specific dimensions (to keep years independent)
+  year: number;
+  crop: string;
+  appliedEcoSchemes: string[];
   area?: number; 
   eligibleArea?: number;
-
-  // NEW: List of specific crops on this reference parcel for this year
   cropParts?: FieldCropPart[];
-
-  limingDate?: string; // YYYY-MM-DD
+  limingDate?: string;
   soilPh?: number;
-
-  // Legacy flat fields (kept for backward compatibility or simple view)
-  designation?: string; 
-  designationZal?: string; 
-  paymentList?: string; 
-  isUnreported?: string; 
-  plantMix?: string; 
-  seedQuantity?: string; 
-  organic?: string; 
-  onwType?: string; 
-  onwArea?: number; 
-  
-  // Specyficzne płatności (PRSK, ZRSK, RE)
-  prskPackage?: string;
-  prskPractice?: string; 
-  prskFruitTreeVariety?: string; 
-  prskFruitTreeCount?: number; 
-  prskIntercropPlant?: string; 
-  prskUsage?: string; 
-  prskVariety?: string; 
-
-  zrskPackage?: string; 
-  zrskPractice?: string; 
-  zrskFruitTreeVariety?: string; 
-  zrskFruitTreeCount?: number; 
-  zrskUsage?: string; 
-  zrskVariety?: string; 
-
-  rePackage?: string; 
-  
-  notes?: string; 
+  designation?: string;
 }
 
-// Tabela: Gospodarstwo (Rozszerzona)
 export interface FarmProfile {
-  producerId: string; // ID_Producenta
-  totalAreaUR: number; // Powierzchnia_UR
-  entryConditionPoints: number; // Wyliczane: Powierzchnia_UR * 25% * 5 pkt
+  producerId: string;
+  totalAreaUR: number;
+  entryConditionPoints: number;
 }
 
 export interface Field {
   id: string;
-  name: string; // Identyfikator działki ewidencyjnej
-  registrationNumber?: string; // Nr działki ewidencyjnej
-  area: number; // Pow. gruntów ornych ogółem na działce [ha] (Latest/Default)
-  eligibleArea: number; // Hektar kwalifikujący się ogółem na działce [ha] (Latest/Default)
+  name: string;
+  registrationNumber?: string;
+  area: number;
+  eligibleArea: number;
   crop: CropType;
-  history: FieldHistoryEntry[]; // Relacja do Dzialki_Historia
-
-  // Dane lokalizacyjne (z pliku dzialki.csv)
-  voivodeship?: string; // Województwo
-  district?: string; // Powiat
-  commune?: string; // Gmina
-  precinctName?: string; // Nazwa obrębu ewidencyjnego
-  precinctNumber?: string; // Nr obrębu ewidencyjnego
-  mapSheet?: string; // Nr arkusza mapy
+  history: FieldHistoryEntry[];
+  voivodeship?: string;
+  district?: string;
+  commune?: string;
+  precinctName?: string;
+  precinctNumber?: string;
+  mapSheet?: string;
 }
 
 export interface FarmData {
   farmName: string;
-  profile: FarmProfile; // Dane tabeli Gospodarstwo
+  profile: FarmProfile;
   fields: Field[];
 }
 
@@ -121,17 +194,17 @@ export interface FarmerDocument {
   name: string;
   type: 'PDF' | 'CSV' | 'GML' | 'SHP' | 'OTHER';
   category: 'WNIOSEK' | 'MAPA' | 'REJESTR' | 'INNE'; 
-  campaignYear: string; // np. "2026"
+  campaignYear: string;
   size: string;
   uploadDate: string;
+  extractedText?: string;
 }
 
 export interface FarmerClient {
-  producerId: string; // Primary Key (EP, 9 digits)
-  advisorId?: number; // Foreign Key to User (Advisor)
+  producerId: string;
+  advisorId?: number;
   firstName: string;
   lastName: string;
-  // Computed or auxiliary
   farmName: string; 
   totalArea: number;
   status: 'ACTIVE' | 'PENDING' | 'COMPLETED';
@@ -139,7 +212,6 @@ export interface FarmerClient {
   documents: FarmerDocument[];
 }
 
-// Tabela: Stawki_2026 i Ekoschematy
 export interface SubsidyRate {
   id: string;
   name: string;
@@ -147,20 +219,11 @@ export interface SubsidyRate {
   unit: 'PLN/ha' | 'PLN/DJP' | 'PLN/pkt' | 'PLN/szt.' | 'PLN/kg' | 'EUR/ha';
   category: 'EKOSCHEMAT' | 'DOPLATA' | 'DOBROSTAN';
   year: number;
-  
-  // Extended properties for Eco-schemes
-  shortName?: string; // e.g. "E_ZSU"
-  points?: number; // e.g. 5
-  combinableWith?: string; // e.g. "E_OPN, E_PN"
-  description?: string; // Additional tooltip info
-}
-
-export interface OptimizationRecommendation {
-  fieldId: string;
-  fieldName: string;
-  suggestedEcoSchemes: string[];
-  reasoning: string;
-  potentialGain: number; // Estimated gain in PLN
+  shortName?: string;
+  points?: number;
+  combinableWith?: string;
+  conflictsWith?: string[];
+  description?: string;
 }
 
 export interface OptimizationResult {
@@ -169,12 +232,29 @@ export interface OptimizationResult {
   complianceNotes: string;
 }
 
-// --- LOGIC / VALIDATION TYPES ---
+export interface OptimizationRecommendation {
+  fieldId: string;
+  fieldName: string;
+  suggestedEcoSchemes: string[];
+  reasoning: string;
+  potentialGain: number;
+}
+
+export interface FarmAnalysisReport {
+    validationIssues: ValidationIssue[];
+    ecoSchemes: EcoSchemeCalculation[];
+    totalPoints: number;
+    requiredPoints: number;
+    isEntryConditionMet: boolean;
+    totalEstimatedValue: number;
+}
+
 export interface ValidationIssue {
-    type: 'ERROR' | 'WARNING';
+    type: 'ERROR' | 'WARNING' | 'CONFLICT';
     fieldId: string;
     fieldName: string;
     message: string;
+    relatedSchemes?: string[];
 }
 
 export interface EcoSchemeCalculation {
@@ -184,49 +264,25 @@ export interface EcoSchemeCalculation {
     estimatedValue: number;
 }
 
-export interface FarmAnalysisReport {
-    validationIssues: ValidationIssue[];
-    ecoSchemes: EcoSchemeCalculation[];
-    totalPoints: number;
-    requiredPoints: number; // 25% * 5pkt condition
-    isEntryConditionMet: boolean;
-    totalEstimatedValue: number;
-}
-
-// --- TASKS / PLANNER ---
-export type TaskPriority = 'HIGH' | 'MEDIUM' | 'LOW';
-export type TaskStatus = 'PENDING' | 'DONE';
-export type TaskType = 'AGRO' | 'DEADLINE' | 'CONTROL';
-
 export interface FarmTask {
     id: string;
     title: string;
-    description?: string;
-    date: string; // YYYY-MM-DD
-    fieldId?: string; // Optional link to field
-    fieldName?: string;
+    date: string;
     priority: TaskPriority;
-    status: TaskStatus;
+    status: 'PENDING' | 'DONE';
     type: TaskType;
-}
-
-// --- CSV TEMPLATES ---
-export type CsvTemplateType = 'PARCELS' | 'CROPS';
-
-export interface CsvMappingField {
-    key: string;
-    label: string;
-    required: boolean;
+    fieldId?: string;
+    fieldName?: string;
+    description?: string;
 }
 
 export interface CsvTemplate {
     id: string;
     name: string;
     type: CsvTemplateType;
-    year: number; // Rok kampanii
-    // Mapuje klucz systemowy (np. 'area') na nagłówek w pliku CSV (np. 'Powierzchnia Ha')
+    year: number;
     mappings: Record<string, string>; 
-    separator: string; // ';' lub ','
+    separator: string;
 }
 
-export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION';
+export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION' | 'HIERARCHY' | 'SEMANTIC_EXPLORER' | 'FARMER_APPLICATION' | 'OPERATIONS_LOG';

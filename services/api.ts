@@ -1,5 +1,5 @@
 
-import { FarmerClient, Field, FarmerDocument, SubsidyRate, CropDefinition, CsvTemplate, AuthResponse, User } from '../types';
+import { FarmerClient, Field, FarmerDocument, SubsidyRate, CropDefinition, CsvTemplate, AuthResponse, User, FieldOperation } from '../types';
 import { MOCK_CLIENTS } from '../constants';
 
 const getBaseUrl = () => {
@@ -46,31 +46,23 @@ export const api = {
             return { token: 'local_token_demo', user: demoUser };
         }
         
-        try {
-            const res = await fetch(`${API_BASE_URL}/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
-            if (!res.ok) throw new Error('Błąd logowania');
-            return await res.json();
-        } catch (e) {
-            throw new Error('Błąd serwera. Użyj konta demo@agro.pl dla trybu lokalnego.');
-        }
+        const res = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) throw new Error('Błędne dane logowania.');
+        return await res.json();
     },
 
-    async register(data: any): Promise<AuthResponse> {
-        try {
-            const res = await fetch(`${API_BASE_URL}/auth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (!res.ok) throw new Error('Błąd rejestracji');
-            return await res.json();
-        } catch (e) {
-            throw new Error('Błąd serwera podczas rejestracji.');
-        }
+    async register(data: { email: string; password: string; fullName: string; role: string }): Promise<AuthResponse> {
+        const res = await fetch(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!res.ok) throw new Error('Błąd podczas rejestracji. Email może być już zajęty.');
+        return await res.json();
     },
 
     async getClients(): Promise<FarmerClient[]> {
@@ -78,22 +70,20 @@ export const api = {
             const res = await fetch(`${API_BASE_URL}/clients`, { headers: getHeaders() });
             if (!res.ok) throw new Error();
             const data = await res.json();
-            if (data && data.length > 0) {
+            if (data) {
                 localStorage.setItem('ao_clients', JSON.stringify(data));
                 return data;
             }
             throw new Error();
         } catch (error) { 
             const local = localStorage.getItem('ao_clients');
-            const clients = local ? JSON.parse(local) : MOCK_CLIENTS;
-            if (!local) localStorage.setItem('ao_clients', JSON.stringify(MOCK_CLIENTS));
-            return clients;
+            return local ? JSON.parse(local) : MOCK_CLIENTS;
         }
     },
 
     async createOrUpdateClient(client: FarmerClient): Promise<FarmerClient | null> {
         const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const idx = local.findIndex((c: any) => c.producerId === client.producerId);
+        const idx = local.findIndex((c: FarmerClient) => c.producerId === client.producerId);
         if (idx >= 0) local[idx] = client; else local.push(client);
         localStorage.setItem('ao_clients', JSON.stringify(local));
 
@@ -103,34 +93,43 @@ export const api = {
                 headers: getHeaders(),
                 body: JSON.stringify(client)
             });
-            return await res.json();
-        } catch (error) { return client; }
+            if (res.ok) {
+                const saved = await res.json();
+                const updated = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+                const i = updated.findIndex((c: FarmerClient) => c.producerId === saved.producerId);
+                if (i >= 0) updated[i] = saved; else updated.push(saved);
+                localStorage.setItem('ao_clients', JSON.stringify(updated));
+                return saved;
+            }
+        } catch (e) {
+            console.warn("Backend niedostępny, klient zapisany lokalnie.");
+        }
+        return client;
     },
 
     async deleteClient(id: string): Promise<boolean> {
         const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        localStorage.setItem('ao_clients', JSON.stringify(local.filter((c: any) => c.producerId !== id)));
+        localStorage.setItem('ao_clients', JSON.stringify(local.filter((c: FarmerClient) => c.producerId !== id)));
+
         try {
             const res = await fetch(`${API_BASE_URL}/clients/${id}`, { method: 'DELETE', headers: getHeaders() });
-            return res.ok;
-        } catch (error) { return true; }
+            if (!res.ok) console.warn("Błąd usuwania na serwerze.");
+        } catch (e) {
+            console.warn("Backend niedostępny.");
+        }
+        return true;
     },
 
     async getClientFields(clientId: string): Promise<Field[]> {
         const localStr = localStorage.getItem(`fields_${clientId}`);
         const localData = localStr ? JSON.parse(localStr) : [];
-
         try {
-            const isOnline = await this.checkConnection();
-            if (isOnline) {
-                const res = await fetch(`${API_BASE_URL}/clients/${clientId}/fields`, { headers: getHeaders() });
-                if (res.ok) {
-                    const data = await res.json();
-                    // Jeśli serwer ma dane, odświeżamy local. Jeśli nie, zostawiamy lokalne.
-                    if (data && data.length > 0) {
-                        localStorage.setItem(`fields_${clientId}`, JSON.stringify(data));
-                        return data;
-                    }
+            const res = await fetch(`${API_BASE_URL}/clients/${clientId}/fields`, { headers: getHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    localStorage.setItem(`fields_${clientId}`, JSON.stringify(data));
+                    return data;
                 }
             }
             return localData;
@@ -140,105 +139,178 @@ export const api = {
     },
 
     async saveClientFields(clientId: string, fields: Field[]): Promise<Field[]> {
-        // Zapis lokalny natychmiastowy - GWARANCJA przeżycia reloadu
         localStorage.setItem(`fields_${clientId}`, JSON.stringify(fields));
-        
+
         try {
-            const isOnline = await this.checkConnection();
-            if (isOnline) {
-                const response = await fetch(`${API_BASE_URL}/clients/${clientId}/fields`, {
-                    method: 'POST',
-                    headers: getHeaders(),
-                    body: JSON.stringify(fields)
-                });
-                if (!response.ok) {
-                    console.warn("Server save failed, relying on local storage.");
-                }
+            const response = await fetch(`${API_BASE_URL}/clients/${clientId}/fields`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(fields)
+            });
+            if (!response.ok) {
+                console.warn('Serwer niedostępny - dane zapisane lokalnie.');
             }
-            return fields;
-        } catch (error) { 
-            console.error("Save API error, data kept locally:", error);
-            return fields; 
+        } catch (e) {
+            console.warn('Backend offline - dane zapisane w localStorage.');
+        }
+        return fields;
+    },
+
+    async getOperations(clientId: string): Promise<FieldOperation[]> {
+        const localKey = `ops_${clientId}`;
+        const localData = JSON.parse(localStorage.getItem(localKey) || '[]');
+        try {
+            const res = await fetch(`${API_BASE_URL}/clients/${clientId}/operations`, { headers: getHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem(localKey, JSON.stringify(data));
+                return data;
+            }
+            return localData;
+        } catch (e) {
+            return localData;
+        }
+    },
+
+    async saveOperation(clientId: string, op: FieldOperation): Promise<FieldOperation> {
+        const localKey = `ops_${clientId}`;
+        const local = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const idx = local.findIndex((o: FieldOperation) => o.id === op.id);
+        if (idx >= 0) local[idx] = op; else local.push(op);
+        localStorage.setItem(localKey, JSON.stringify(local));
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/clients/${clientId}/operations`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(op)
+            });
+            if (res.ok) return await res.json();
+        } catch (e) {
+            console.warn("Backend unavailable, operation saved locally.");
+        }
+        return op;
+    },
+
+    async deleteOperation(clientId: string, opId: string): Promise<boolean> {
+        const localKey = `ops_${clientId}`;
+        const local = JSON.parse(localStorage.getItem(localKey) || '[]');
+        localStorage.setItem(localKey, JSON.stringify(local.filter((o: FieldOperation) => o.id !== opId)));
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/clients/${clientId}/operations/${opId}`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            });
+            return res.ok;
+        } catch (e) {
+            return true;
         }
     },
 
     async addDocument(clientId: string, doc: FarmerDocument): Promise<FarmerDocument | null> {
-        const clients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const cIdx = clients.findIndex((c: any) => c.producerId === clientId);
-        if (cIdx >= 0) {
-            if (!clients[cIdx].documents) clients[cIdx].documents = [];
-            clients[cIdx].documents.push(doc);
-            localStorage.setItem('ao_clients', JSON.stringify(clients));
+        const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+        const clientIdx = localClients.findIndex((c: FarmerClient) => c.producerId === clientId);
+        if (clientIdx >= 0) {
+            if (!localClients[clientIdx].documents) localClients[clientIdx].documents = [];
+            localClients[clientIdx].documents.push(doc);
+            localStorage.setItem('ao_clients', JSON.stringify(localClients));
         }
+
         try {
             const res = await fetch(`${API_BASE_URL}/clients/${clientId}/documents`, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify(doc)
             });
-            return await res.json();
-        } catch (error) { return doc; }
+            if (res.ok) return await res.json();
+        } catch (e) {
+            console.warn("Backend unavailable, document saved locally.");
+        }
+        return doc;
     },
 
     async removeDocument(clientId: string, docId: string): Promise<boolean> {
-        const clients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const cIdx = clients.findIndex((c: any) => c.producerId === clientId);
-        if (cIdx >= 0) {
-            clients[cIdx].documents = (clients[cIdx].documents || []).filter((d: any) => d.id !== docId);
-            localStorage.setItem('ao_clients', JSON.stringify(clients));
+        const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+        const clientIdx = localClients.findIndex((c: FarmerClient) => c.producerId === clientId);
+        if (clientIdx >= 0) {
+            localClients[clientIdx].documents = localClients[clientIdx].documents.filter((d: FarmerDocument) => d.id !== docId);
+            localStorage.setItem('ao_clients', JSON.stringify(localClients));
         }
+
         try {
             const res = await fetch(`${API_BASE_URL}/clients/${clientId}/documents/${docId}`, { method: 'DELETE', headers: getHeaders() });
             return res.ok;
-        } catch (error) { return true; }
+        } catch (e) {
+            return true;
+        }
     },
 
     async getTemplates(): Promise<CsvTemplate[]> {
         try {
             const res = await fetch(`${API_BASE_URL}/templates`, { headers: getHeaders() });
-            return res.ok ? await res.json() : [];
-        } catch (error) { return []; }
+            if (res.ok) {
+                const data = await res.json();
+                if (data) localStorage.setItem('ao_templates', JSON.stringify(data));
+                return data;
+            }
+        } catch (e) {}
+        const local = localStorage.getItem('ao_templates');
+        return local ? JSON.parse(local) : [];
+    },
+
+    async saveTemplate(tpl: CsvTemplate): Promise<CsvTemplate | null> {
+        try {
+            const res = await fetch(`${API_BASE_URL}/templates`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(tpl) });
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        console.warn('Template saved locally only.');
+        return tpl;
     },
 
     async getRates(): Promise<SubsidyRate[]> {
         try {
             const res = await fetch(`${API_BASE_URL}/rates`, { headers: getHeaders() });
-            return res.ok ? await res.json() : [];
-        } catch (error) { return []; }
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return [];
     },
 
     async saveRate(rate: SubsidyRate): Promise<SubsidyRate | null> {
         try {
             const res = await fetch(`${API_BASE_URL}/rates`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(rate) });
-            return await res.json();
-        } catch (error) { return rate; }
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return rate;
     },
 
     async deleteRate(id: string): Promise<boolean> {
         try {
             const res = await fetch(`${API_BASE_URL}/rates/${id}`, { method: 'DELETE', headers: getHeaders() });
             return res.ok;
-        } catch (error) { return true; }
+        } catch (e) { return false; }
     },
 
     async getCrops(): Promise<CropDefinition[]> {
         try {
             const res = await fetch(`${API_BASE_URL}/crops`, { headers: getHeaders() });
-            return res.ok ? await res.json() : [];
-        } catch (error) { return []; }
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return [];
     },
 
     async saveCrop(crop: CropDefinition): Promise<CropDefinition | null> {
         try {
             const res = await fetch(`${API_BASE_URL}/crops`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(crop) });
-            return await res.json();
-        } catch (error) { return crop; }
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return crop;
     },
 
     async deleteCrop(id: string): Promise<boolean> {
         try {
             const res = await fetch(`${API_BASE_URL}/crops/${id}`, { method: 'DELETE', headers: getHeaders() });
             return res.ok;
-        } catch (error) { return true; }
+        } catch (e) { return false; }
     }
 };

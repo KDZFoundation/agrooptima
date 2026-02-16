@@ -37,9 +37,9 @@ export const SUBSIDY_RATES_2026: SubsidyRate[] = [
   { id: 'S26_01', name: 'Płatność do roślin bobowatych', rate: 700, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_BOB', points: 7 },
   { id: 'S26_02', name: 'Międzyplony ozime / wsiewki', rate: 500, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_MIO', points: 5 },
   { id: 'S26_03', name: 'Integrowana Produkcja Roślin', rate: 650, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_IPR', points: 6.5 },
-  { id: 'S26_04', name: 'Wymieszanie obornika w 24h', rate: 200, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_WOD', points: 2 }, 
+  { id: 'S26_04', name: 'Wymieszanie obornika w 24h', rate: 200, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_WOD', points: 2, conflictsWith: ['E_GNO'] }, 
   { id: 'S26_05', name: 'Zróżnicowana struktura upraw', rate: 300, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_ZSU', points: 3 },
-  { id: 'S26_06', name: 'Uproszczone systemy uprawy', rate: 400, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_USU', points: 4 },
+  { id: 'S26_06', name: 'Uproszczone systemy uprawy', rate: 400, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_USU', points: 4, conflictsWith: ['E_SLOM'] },
   { id: 'S26_07', name: 'Biologiczna ochrona roślin', rate: 400, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_BOP', points: 4 },
   { id: 'S26_08', name: 'Retencjonowanie wody', rate: 280, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_RET', points: 2.8 },
   { id: 'S26_09', name: 'Obszary z roślinami miododajnymi', rate: 1200, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2026, shortName: 'E_OPN', points: 12 },
@@ -54,14 +54,55 @@ export const SUBSIDY_RATES_2025: SubsidyRate[] = [
   { id: 'P25_19', name: 'Uzupełniająca płatność podstawowa', rate: 55.95, unit: 'PLN/ha', category: 'DOPLATA', year: 2025 },
   
   { id: 'E25_01', name: 'Zróżnicowana struktura upraw', rate: 300.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_ZSU', points: 3 },
-  { id: 'E25_02', name: 'Uproszczone systemy uprawy', rate: 400.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_USU', points: 4 },
-  { id: 'E25_03', name: 'Wymieszanie obornika z glebą (24h)', rate: 200.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_WOD', points: 2 },
-  { id: 'E25_04', name: 'Stosowanie nawozów naturalnych płynnych', rate: 300.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_GNO', points: 3 },
+  { id: 'E25_02', name: 'Uproszczone systemy uprawy', rate: 400.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_USU', points: 4, conflictsWith: ['E_SLOM'] },
+  { id: 'E25_03', name: 'Wymieszanie obornika z glebą (24h)', rate: 200.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_WOD', points: 2, conflictsWith: ['E_GNO'] },
+  { id: 'E25_04', name: 'Stosowanie nawozów naturalnych płynnych', rate: 300.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_GNO', points: 3, conflictsWith: ['E_WOD'] },
   { id: 'E25_05', name: 'Międzyplony ozime / wsiewki', rate: 500.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_MIO', points: 5 },
   { id: 'E25_06', name: 'Integrowana Produkcja Roślin', rate: 1300.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_IPR', points: 13 },
   { id: 'E25_07', name: 'Biologiczna ochrona roślin', rate: 400.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_BOP', points: 4 },
   { id: 'E25_08', name: 'Obszary z roślinami miododajnymi', rate: 1200.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_OPN', points: 12 },
   { id: 'E25_09', name: 'Opracowanie i przestrzeganie planu nawożenia', rate: 100.00, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2025, shortName: 'E_PLA', points: 1 },
+];
+
+export const SUBSIDY_RATES_2024: SubsidyRate[] = [
+    // Podstawowe 2024
+    { id: 'P24_01', name: 'Podstawowe wsparcie dochodów (PWD)', rate: 483.20, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_02', name: 'Płatność redystrybucyjna', rate: 168.79, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_03', name: 'Płatność dla młodych rolników', rate: 256.55, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_04', name: 'Płatność do roślin strączkowych na nasiona', rate: 794.08, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_05', name: 'Płatność do roślin pastewnych', rate: 430.18, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_06', name: 'Płatność do ziemniaków skrobiowych', rate: 1580.89, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_07', name: 'Płatność do buraków cukrowych', rate: 1253.34, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_08', name: 'Płatność do pomidorów', rate: 2097.56, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_09', name: 'Płatność do chmielu', rate: 1852.03, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_10', name: 'Płatność do truskawek', rate: 1154.20, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_11', name: 'Płatność do lnu', rate: 431.98, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_12', name: 'Płatność do konopi włóknistych', rate: 125.32, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_13', name: 'Płatność do bydła', rate: 320.35, unit: 'PLN/szt.', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_14', name: 'Płatność do krów', rate: 409.86, unit: 'PLN/szt.', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_15', name: 'Płatność do owiec', rate: 109.40, unit: 'PLN/szt.', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_16', name: 'Płatność do kóz', rate: 47.83, unit: 'PLN/szt.', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_17', name: 'Uzupełniająca płatność podstawowa', rate: 63.22, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_18', name: 'Płatność niezwiązana do tytoniu', rate: 2.52, unit: 'PLN/kg', category: 'DOPLATA', year: 2024 },
+    { id: 'P24_19', name: 'Płatność dla małych gospodarstw', rate: 962.73, unit: 'PLN/ha', category: 'DOPLATA', year: 2024 },
+
+    // Ekoschematy 2024 - Rolnictwo Węglowe
+    { id: 'E24_01', name: 'Ekstensywne użytkowanie TUZ z obsadą', rate: 435.10, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_TUZ', points: 5 },
+    { id: 'E24_02', name: 'Międzyplony ozime / wsiewki śródplonowe', rate: 435.10, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_MIO', points: 5 },
+    { id: 'E24_03', name: 'Plan nawożenia - wariant podstawowy', rate: 87.02, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_PLAN', points: 1 },
+    { id: 'E24_04', name: 'Plan nawożenia - wariant z wapnowaniem', rate: 261.06, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_WAP', points: 3 },
+    { id: 'E24_05', name: 'Zróżnicowana struktura upraw', rate: 225.01, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_ZSU', points: 3 },
+    { id: 'E24_06', name: 'Wymieszanie obornika na GO w 12h', rate: 174.04, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_OBOR', points: 2, conflictsWith: ['E_GNOJ'] },
+    { id: 'E24_07', name: 'Płynne nawozy naturalne innymi metodami', rate: 261.06, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_GNOJ', points: 3, conflictsWith: ['E_OBOR'] },
+    { id: 'E24_08', name: 'Uproszczone systemy uprawy', rate: 251.94, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_USU', points: 4, conflictsWith: ['E_SLOM'] },
+    { id: 'E24_09', name: 'Wymieszanie słomy z glebą', rate: 134.60, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_SLOM', points: 2, conflictsWith: ['E_USU'] },
+
+    // Ekoschematy 2024 - Pozostałe
+    { id: 'E24_10', name: 'Obszary z roślinami miododajnymi', rate: 898.66, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_OPN', points: 12 },
+    { id: 'E24_11', name: 'Integrowana Produkcja Roślin', rate: 818.92, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_IPR', points: 13 },
+    { id: 'E24_12', name: 'Biologiczna ochrona upraw', rate: 300.06, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_BOP', points: 4 },
+    { id: 'E24_13', name: 'Retencjonowanie wody na TUZ', rate: 244.57, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_RET', points: 2.8 },
+    { id: 'E24_14', name: 'Grunty wyłączone z produkcji', rate: 422.34, unit: 'PLN/ha', category: 'EKOSCHEMAT', year: 2024, shortName: 'E_UGR', points: 7 },
 ];
 
 export const MOCK_CLIENTS: FarmerClient[] = [

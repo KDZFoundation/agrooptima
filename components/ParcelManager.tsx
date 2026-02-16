@@ -35,62 +35,30 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
       return isNaN(num) ? 0 : num;
   };
 
-  const normalizeRegNum = (num: string): string => {
-    if (!num) return '';
-    return num.toString().trim()
-        .replace(/[\s\.\-_]/g, '')
-        .split('/')
-        .map(part => part.replace(/^0+/, '') || '0')
-        .join('/')
-        .toLowerCase();
-  };
-
-  // GRUPOWANIE WIDOKU - Zabezpieczenie przed dublowaniem w UI
+  // WIDOK EWIDENCJI: Tylko działki z realnym PEG > 0 dla wybranego roku
   const visibleFields = useMemo(() => {
-    const grouped: Record<string, Field> = {};
-    
-    fields.forEach(field => {
+    return fields.filter(field => {
         const hist = field.history?.find(h => h.year === selectedYear);
-        if (!hist) return;
-        
-        // Nie pokazuj wierszy Zasiewów w Ewidencji
-        if (hist.designation || (hist.cropParts && hist.cropParts.length > 0)) return;
-
-        const key = normalizeRegNum(field.registrationNumber || field.id);
-        if (!grouped[key]) {
-            grouped[key] = { ...field };
-        } else {
-            // Jeśli mamy duplikat w state, zsumuj powierzchnie dla widoku
-            const existingHist = grouped[key].history.find(h => h.year === selectedYear);
-            if (existingHist && hist) {
-                existingHist.area = (existingHist.area || 0) + (hist.area || 0);
-                existingHist.eligibleArea = (existingHist.eligibleArea || 0) + (hist.eligibleArea || 0);
-            }
-        }
-    });
-
-    return Object.values(grouped).sort((a, b) => (a.registrationNumber || '').localeCompare(b.registrationNumber || ''));
+        return hist && (hist.eligibleArea || 0) > 0;
+    }).sort((a, b) => (a.registrationNumber || '').localeCompare(b.registrationNumber || '', undefined, {numeric: true}));
   }, [fields, selectedYear]);
 
-  const getDimensionsForYear = (field: Field, year: number) => {
-      const historyEntry = field.history?.find(h => h.year === year);
-      return { 
-          area: historyEntry?.area || 0, 
-          eligible: historyEntry?.eligibleArea || 0 
-      };
-  };
-
-  const totalEligible = visibleFields.reduce((sum, f) => sum + getDimensionsForYear(f, selectedYear).eligible, 0);
-  const totalGeodetic = visibleFields.reduce((sum, f) => sum + getDimensionsForYear(f, selectedYear).area, 0);
+  // SUMA MATEMATYCZNA: Zgodnie z prośbą, suma eligibleArea z pliku CSV
+  const totalEligible = useMemo(() => {
+    return visibleFields.reduce((sum, f) => {
+        const h = f.history?.find(x => x.year === selectedYear);
+        return sum + (h?.eligibleArea || 0);
+    }, 0);
+  }, [visibleFields, selectedYear]);
 
   const startEditing = (field: Field) => {
     setEditingId(field.id);
-    const dims = getDimensionsForYear(field, selectedYear);
+    const hist = field.history?.find(h => h.year === selectedYear);
     setEditForm({
         name: field.name,
         registrationNumber: field.registrationNumber || '',
-        area: dims.area.toString().replace('.', ','), 
-        eligibleArea: dims.eligible.toString().replace('.', ','),
+        area: (hist?.area || 0).toString().replace('.', ','), 
+        eligibleArea: (hist?.eligibleArea || 0).toString().replace('.', ','),
         commune: field.commune || '',
         precinctName: field.precinctName || '',
         precinctNumber: field.precinctNumber || '',
@@ -133,16 +101,8 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
   const removeField = (id: string) => {
     const field = fields.find(f => f.id === id);
     if (!field) return;
-    const otherYears = field.history.filter(h => h.year !== selectedYear).map(h => h.year);
-    
-    if (otherYears.length > 0) {
-        if (window.confirm(`Działka posiada historię w innych latach. Usunąć wpis tylko dla ${selectedYear}?`)) {
-             onUpdateFields(fields.map(f => f.id === id ? { ...f, history: f.history.filter(h => h.year !== selectedYear) } : f));
-        }
-    } else {
-        if (window.confirm(`Czy na pewno usunąć działkę trwale?`)) {
-            onUpdateFields(fields.filter(f => f.id !== id));
-        }
+    if (window.confirm(`Czy na pewno usunąć zapis tej działki dla roku ${selectedYear}?`)) {
+        onUpdateFields(fields.map(f => f.id === id ? { ...f, history: f.history.filter(h => h.year !== selectedYear) } : f));
     }
   };
 
@@ -169,7 +129,7 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
           <tbody className="divide-y divide-slate-100">
             {visibleFields.map((field) => {
                 const isEditing = editingId === field.id;
-                const dims = getDimensionsForYear(field, selectedYear);
+                const hist = field.history?.find(h => h.year === selectedYear);
                 return (
                   <tr key={field.id} className={`transition-colors ${isEditing ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
                     <td className="p-4">
@@ -185,21 +145,21 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
                         {isEditing ? <input value={editForm.commune} onChange={e => setEditForm({...editForm, commune: e.target.value})} placeholder="Gmina" className="border border-amber-300 rounded px-2 py-1 text-xs w-28" /> : <span>{field.commune}</span>}
                     </td>
                     <td className="p-4 text-slate-800 font-bold bg-amber-50/50 border-x border-amber-100">
-                        {isEditing ? <input value={editForm.eligibleArea} onChange={e => setEditForm({...editForm, eligibleArea: e.target.value})} className="border border-amber-300 rounded px-2 py-1 text-sm w-20 bg-white" /> : dims.eligible.toFixed(2)}
+                        {isEditing ? <input value={editForm.eligibleArea} onChange={e => setEditForm({...editForm, eligibleArea: e.target.value})} className="border border-amber-300 rounded px-2 py-1 text-sm w-20 bg-white" /> : (hist?.eligibleArea || 0).toFixed(2)}
                     </td>
                     <td className="p-4 text-slate-600">
-                        {isEditing ? <input value={editForm.area} onChange={e => setEditForm({...editForm, area: e.target.value})} className="border border-amber-300 rounded px-2 py-1 text-sm w-20" /> : dims.area.toFixed(2)}
+                        {isEditing ? <input value={editForm.area} onChange={e => setEditForm({...editForm, area: e.target.value})} className="border border-amber-300 rounded px-2 py-1 text-sm w-20" /> : (hist?.area || 0).toFixed(2)}
                     </td>
                     <td className="p-4 text-right">
                         {isEditing ? (
                             <div className="flex justify-end space-x-2">
-                                <button onClick={() => saveEditing(field.id)} className="p-2 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm"><Save size={18} /></button>
-                                <button onClick={() => setEditingId(null)} className="p-2 text-slate-500 hover:bg-slate-200 rounded-lg"><X size={18} /></button>
+                                <button onClick={() => saveEditing(field.id)} className="p-2 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm"><Save size={16} /></button>
+                                <button onClick={() => setEditingId(null)} className="p-2 text-slate-500 hover:bg-slate-200 rounded-lg"><X size={16} /></button>
                             </div>
                         ) : (
                             <div className="flex justify-end space-x-2">
-                                <button onClick={() => startEditing(field)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"><Edit2 size={18} /></button>
-                                <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                <button onClick={() => startEditing(field)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"><Edit2 size={16} /></button>
+                                <button onClick={() => removeField(field.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                             </div>
                         )}
                     </td>
@@ -208,14 +168,14 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
             })}
             {visibleFields.length > 0 && (
                 <tr className="bg-slate-100 border-t-2 border-slate-200 font-bold text-slate-700">
-                    <td colSpan={3} className="p-4 text-right uppercase text-xs">Suma Hektarów:</td>
-                    <td className="p-4 text-emerald-700">{totalEligible.toFixed(2)} ha</td>
-                    <td className="p-4 text-slate-600">{totalGeodetic.toFixed(2)} ha</td>
+                    <td colSpan={3} className="p-4 text-right uppercase text-xs">Suma Hektarów (Matematyczna):</td>
+                    <td className="p-4 text-emerald-700 font-black">{totalEligible.toFixed(2)} ha</td>
+                    <td className="p-4 text-slate-600">-</td>
                     <td></td>
                 </tr>
             )}
             {visibleFields.length === 0 && (
-              <tr><td colSpan={6} className="p-12 text-center text-slate-400 flex flex-col items-center"><Map size={48} className="mb-4 opacity-20" /><p>Brak działek. Zaimportuj plik 'Działki' dla wybranego roku.</p></td></tr>
+              <tr><td colSpan={6} className="p-12 text-center text-slate-400 flex flex-col items-center"><Map size={48} className="mb-4 opacity-20" /><p>Brak działek referencyjnych (PEG > 0). Zaimportuj plik 'Działki'.</p></td></tr>
             )}
           </tbody>
         </table>

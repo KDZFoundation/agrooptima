@@ -1,12 +1,62 @@
 
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from jose import jwt, JWTError
+from passlib.context import CryptContext
 import models
 import database
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 app = FastAPI(title="AgroOptima API")
+
+# --- SECURITY CONFIG ---
+SECRET_KEY = "dd7778dndrdnonlasmdelamnawyraju8"  # ZMIEŃ W PRODUKCJI!
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+def create_token(user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(database.get_db)
+) -> models.User:
+    """Weryfikuje token JWT i zwraca użytkownika."""
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+# Enable CORS for frontend communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize database
 models.Base.metadata.create_all(bind=database.engine)
@@ -27,6 +77,7 @@ class UserLogin(BaseModel):
     password: str
 
 class UserSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     email: str
     fullName: str
@@ -37,6 +88,7 @@ class AuthResponse(BaseModel):
     user: UserSchema
 
 class DocumentSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
     type: str
@@ -44,8 +96,10 @@ class DocumentSchema(BaseModel):
     campaignYear: str
     size: str
     uploadDate: str
+    extractedText: Optional[str] = None
 
 class FarmerClientSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     producerId: str
     firstName: str
     lastName: str
@@ -55,7 +109,21 @@ class FarmerClientSchema(BaseModel):
     farmName: Optional[str] = None
     documents: List[DocumentSchema] = []
 
+class FieldOperationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    fieldId: str
+    fieldName: str
+    date: str
+    type: str
+    productName: str
+    dosage: str
+    unit: str
+    isEcoSchemeRelevant: bool
+    linkedEcoScheme: Optional[str] = None
+
 class CropPartSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     designation: str
     crop: str
     area: float
@@ -65,6 +133,7 @@ class CropPartSchema(BaseModel):
     plantMix: Optional[str] = None
 
 class FieldHistorySchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     year: int
     crop: str
     appliedEcoSchemes: List[str]
@@ -75,6 +144,7 @@ class FieldHistorySchema(BaseModel):
     soilPh: Optional[float] = None
 
 class FieldSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
     registrationNumber: Optional[str] = None
@@ -90,6 +160,7 @@ class FieldSchema(BaseModel):
     mapSheet: Optional[str] = None
 
 class SubsidyRateSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
     rate: float
@@ -99,9 +170,11 @@ class SubsidyRateSchema(BaseModel):
     shortName: Optional[str] = None
     points: Optional[float] = None
     combinableWith: Optional[str] = None
+    conflictsWith: Optional[List[str]] = None
     description: Optional[str] = None
 
 class CropDefinitionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
     type: str
@@ -109,6 +182,7 @@ class CropDefinitionSchema(BaseModel):
     isCatchCrop: bool
 
 class CsvTemplateSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
     type: str
@@ -126,7 +200,7 @@ def register(user_data: UserRegister, db: Session = Depends(database.get_db)):
     
     new_user = models.User(
         email=user_data.email,
-        hashed_password=f"hashed_{user_data.password}",
+        hashed_password=hash_password(user_data.password),
         full_name=user_data.fullName,
         role=user_data.role
     )
@@ -135,52 +209,30 @@ def register(user_data: UserRegister, db: Session = Depends(database.get_db)):
     db.refresh(new_user)
     
     return {
-        "token": f"token_{new_user.id}",
-        "user": {
-            "id": new_user.id,
-            "email": new_user.email,
-            "fullName": new_user.full_name,
-            "role": new_user.role
-        }
+        "token": create_token(new_user.id),
+        "user": UserSchema.model_validate(new_user)
     }
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def login(login_data: UserLogin, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == login_data.email).first()
-    if not user or user.hashed_password != f"hashed_{login_data.password}":
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     return {
-        "token": f"token_{user.id}",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "fullName": user.full_name,
-            "role": user.role
-        }
+        "token": create_token(user.id),
+        "user": UserSchema.model_validate(user)
     }
 
-# --- CLIENTS API ---
+# --- CLIENTS API (chronione tokenem) ---
 
 @app.get("/api/clients", response_model=List[FarmerClientSchema])
-def get_clients(db: Session = Depends(database.get_db)):
+def get_clients(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     clients = db.query(models.FarmerClient).all()
-    result = []
-    for c in clients:
-        docs = [DocumentSchema(
-            id=d.id, name=d.name, type=d.type, category=d.category,
-            campaignYear=d.campaign_year, size=d.size, upload_date=d.upload_date
-        ) for d in c.documents]
-        
-        result.append(FarmerClientSchema(
-            producerId=c.producer_id, firstName=c.first_name, lastName=c.last_name,
-            totalArea=c.total_area, status=c.status, lastContact=c.last_contact,
-            farmName=c.farm_name, documents=docs
-        ))
-    return result
+    return clients
 
 @app.post("/api/clients", response_model=FarmerClientSchema)
-def create_client(client: FarmerClientSchema, db: Session = Depends(database.get_db)):
+def create_client(client: FarmerClientSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     db_client = db.query(models.FarmerClient).filter(models.FarmerClient.producer_id == client.producerId).first()
     if db_client:
         db_client.first_name = client.firstName
@@ -199,40 +251,119 @@ def create_client(client: FarmerClientSchema, db: Session = Depends(database.get
         db.add(db_client)
     db.commit()
     db.refresh(db_client)
-    return client
+    return db_client
 
 @app.delete("/api/clients/{producer_id}")
-def delete_client(producer_id: str, db: Session = Depends(database.get_db)):
+def delete_client(producer_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     db.query(models.FarmerClient).filter(models.FarmerClient.producer_id == producer_id).delete()
     db.commit()
     return {"ok": True}
 
-# --- FIELDS API ---
+# --- OPERATIONS API ---
+
+@app.get("/api/clients/{producer_id}/operations", response_model=List[FieldOperationSchema])
+def get_operations(producer_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db_ops = db.query(models.FieldOperation).filter(models.FieldOperation.farmer_id == producer_id).all()
+    # Map from db model to schema manually to handle camelCase/snake_case mapping
+    results = []
+    for op in db_ops:
+        results.append(FieldOperationSchema(
+            id=op.id,
+            fieldId=op.field_id,
+            fieldName=op.field_name,
+            date=op.date,
+            type=op.type,
+            productName=op.product_name,
+            dosage=op.dosage,
+            unit=op.unit,
+            isEcoSchemeRelevant=op.is_eco_scheme_relevant,
+            linkedEcoScheme=op.linked_eco_scheme
+        ))
+    return results
+
+@app.post("/api/clients/{producer_id}/operations", response_model=FieldOperationSchema)
+def save_operation(producer_id: str, op: FieldOperationSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db_op = db.query(models.FieldOperation).filter(models.FieldOperation.id == op.id).first()
+    if db_op:
+        db_op.field_id = op.fieldId
+        db_op.field_name = op.fieldName
+        db_op.date = op.date
+        db_op.type = op.type
+        db_op.product_name = op.productName
+        db_op.dosage = op.dosage
+        db_op.unit = op.unit
+        db_op.is_eco_scheme_relevant = op.isEcoSchemeRelevant
+        db_op.linked_eco_scheme = op.linkedEcoScheme
+    else:
+        db_op = models.FieldOperation(
+            id=op.id,
+            farmer_id=producer_id,
+            field_id=op.fieldId,
+            field_name=op.fieldName,
+            date=op.date,
+            type=op.type,
+            product_name=op.productName,
+            dosage=op.dosage,
+            unit=op.unit,
+            is_eco_scheme_relevant=op.isEcoSchemeRelevant,
+            linked_eco_scheme=op.linkedEcoScheme
+        )
+        db.add(db_op)
+    db.commit()
+    db.refresh(db_op)
+    return op
+
+@app.delete("/api/clients/{producer_id}/operations/{op_id}")
+def delete_operation(producer_id: str, op_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db.query(models.FieldOperation).filter(
+        models.FieldOperation.farmer_id == producer_id,
+        models.FieldOperation.id == op_id
+    ).delete()
+    db.commit()
+    return {"ok": True}
+
+# --- DOCUMENTS API (chronione tokenem) ---
+
+@app.post("/api/clients/{producer_id}/documents", response_model=DocumentSchema)
+def add_document(producer_id: str, doc: DocumentSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    client = db.query(models.FarmerClient).filter(models.FarmerClient.producer_id == producer_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    db_doc = models.FarmerDocument(
+        id=doc.id,
+        farmer_id=producer_id,
+        name=doc.name,
+        type=doc.type,
+        category=doc.category,
+        campaign_year=doc.campaignYear,
+        size=doc.size,
+        upload_date=doc.uploadDate,
+        extracted_text=doc.extractedText
+    )
+    db.add(db_doc)
+    db.commit()
+    db.refresh(db_doc)
+    return db_doc
+
+@app.delete("/api/clients/{producer_id}/documents/{doc_id}")
+def delete_document(producer_id: str, doc_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db.query(models.FarmerDocument).filter(
+        models.FarmerDocument.farmer_id == producer_id,
+        models.FarmerDocument.id == doc_id
+    ).delete()
+    db.commit()
+    return {"ok": True}
+
+# --- FIELDS API (chronione tokenem) ---
 
 @app.get("/api/clients/{producer_id}/fields", response_model=List[FieldSchema])
-def get_fields(producer_id: str, db: Session = Depends(database.get_db)):
+def get_fields(producer_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     fields = db.query(models.Field).filter(models.Field.farmer_id == producer_id).all()
-    result = []
-    for f in fields:
-        history = [FieldHistorySchema(
-            year=h.year, crop=h.crop, appliedEcoSchemes=h.applied_eco_schemes,
-            area=h.extended_data.get('area'), eligibleArea=h.extended_data.get('eligibleArea'),
-            cropParts=h.extended_data.get('cropParts'), limingDate=h.liming_date,
-            soilPh=h.soil_ph
-        ) for h in f.history]
-        
-        result.append(FieldSchema(
-            id=f.id, name=f.name, registrationNumber=f.registration_number,
-            area=f.area, eligibleArea=f.eligible_area, crop=f.crop,
-            history=history, voivodeship=f.voivodeship, district=f.district,
-            commune=f.commune, precinctName=f.precinct_name,
-            precinctNumber=f.precinct_number, mapSheet=f.map_sheet
-        ))
-    return result
+    return fields
 
 @app.post("/api/clients/{producer_id}/fields")
-def save_fields(producer_id: str, fields: List[FieldSchema], db: Session = Depends(database.get_db)):
-    # Clear existing
+def save_fields(producer_id: str, fields: List[FieldSchema], current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     existing_fields = db.query(models.Field).filter(models.Field.farmer_id == producer_id).all()
     for f in existing_fields:
         db.delete(f)
@@ -255,25 +386,21 @@ def save_fields(producer_id: str, fields: List[FieldSchema], db: Session = Depen
                 soil_ph=h_data.soilPh, extended_data={
                     "area": h_data.area,
                     "eligibleArea": h_data.eligibleArea,
-                    "cropParts": [p.dict() for p in h_data.cropParts] if h_data.cropParts else None
+                    "cropParts": [p.model_dump() for p in h_data.cropParts] if h_data.cropParts else None
                 }
             )
             db.add(db_hist)
     db.commit()
     return {"ok": True}
 
-# --- TEMPLATES API ---
+# --- TEMPLATES API (chronione tokenem) ---
 
 @app.get("/api/templates", response_model=List[CsvTemplateSchema])
-def get_templates(db: Session = Depends(database.get_db)):
-    tpls = db.query(models.CsvTemplate).all()
-    return [CsvTemplateSchema(
-        id=t.id, name=t.name, type=t.type, year=t.year, 
-        separator=t.separator, mappings=t.mappings
-    ) for t in tpls]
+def get_templates(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    return db.query(models.CsvTemplate).all()
 
-@app.post("/api/templates")
-def save_template(tpl: CsvTemplateSchema, db: Session = Depends(database.get_db)):
+@app.post("/api/templates", response_model=CsvTemplateSchema)
+def save_template(tpl: CsvTemplateSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     db_tpl = db.query(models.CsvTemplate).filter(models.CsvTemplate.id == tpl.id).first()
     if db_tpl:
         db_tpl.name = tpl.name
@@ -288,21 +415,17 @@ def save_template(tpl: CsvTemplateSchema, db: Session = Depends(database.get_db)
         )
         db.add(db_tpl)
     db.commit()
-    return {"ok": True}
+    db.refresh(db_tpl)
+    return db_tpl
 
-# --- RATES API ---
+# --- RATES API (chronione tokenem) ---
 
 @app.get("/api/rates", response_model=List[SubsidyRateSchema])
-def get_rates(db: Session = Depends(database.get_db)):
-    rates = db.query(models.SubsidyRate).all()
-    return [SubsidyRateSchema(
-        id=r.id, name=r.name, rate=r.rate, unit=r.unit, category=r.category,
-        year=r.year, shortName=r.short_name, points=r.points,
-        combinableWith=r.combinable_with, description=r.description
-    ) for r in rates]
+def get_rates(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    return db.query(models.SubsidyRate).all()
 
-@app.post("/api/rates")
-def save_rate(rate: SubsidyRateSchema, db: Session = Depends(database.get_db)):
+@app.post("/api/rates", response_model=SubsidyRateSchema)
+def save_rate(rate: SubsidyRateSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     db_rate = db.query(models.SubsidyRate).filter(models.SubsidyRate.id == rate.id).first()
     if db_rate:
         db_rate.name = rate.name
@@ -318,25 +441,29 @@ def save_rate(rate: SubsidyRateSchema, db: Session = Depends(database.get_db)):
         db_rate = models.SubsidyRate(
             id=rate.id, name=rate.name, rate=rate.rate, unit=rate.unit,
             category=rate.category, year=rate.year, short_name=rate.shortName,
-            points=rate.points, combinable_with=rate.combinableWith,
+            points=rate.points,
+            combinable_with=rate.combinableWith,
             description=rate.description
         )
         db.add(db_rate)
     db.commit()
+    db.refresh(db_rate)
+    return db_rate
+
+@app.delete("/api/rates/{id}")
+def delete_rate(id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db.query(models.SubsidyRate).filter(models.SubsidyRate.id == id).delete()
+    db.commit()
     return {"ok": True}
 
-# --- CROPS API ---
+# --- CROPS API (chronione tokenem) ---
 
 @app.get("/api/crops", response_model=List[CropDefinitionSchema])
-def get_crops(db: Session = Depends(database.get_db)):
-    crops = db.query(models.CropDefinition).all()
-    return [CropDefinitionSchema(
-        id=c.id, name=c.name, type=c.type, 
-        isLegume=c.is_legume, isCatchCrop=c.is_catch_crop
-    ) for c in crops]
+def get_crops(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    return db.query(models.CropDefinition).all()
 
-@app.post("/api/crops")
-def save_crop(crop: CropDefinitionSchema, db: Session = Depends(database.get_db)):
+@app.post("/api/crops", response_model=CropDefinitionSchema)
+def save_crop(crop: CropDefinitionSchema, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
     db_crop = db.query(models.CropDefinition).filter(models.CropDefinition.id == crop.id).first()
     if db_crop:
         db_crop.name = crop.name
@@ -349,5 +476,12 @@ def save_crop(crop: CropDefinitionSchema, db: Session = Depends(database.get_db)
             is_legume=crop.isLegume, is_catch_crop=crop.isCatchCrop
         )
         db.add(db_crop)
+    db.commit()
+    db.refresh(db_crop)
+    return db_crop
+
+@app.delete("/api/crops/{id}")
+def delete_crop(id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    db.query(models.CropDefinition).filter(models.CropDefinition.id == id).delete()
     db.commit()
     return {"ok": True}
