@@ -9,6 +9,7 @@ interface AdminPanelProps {
   templates: CsvTemplate[];
   onSaveTemplate: (template: CsvTemplate) => void;
   onDeleteTemplate: (id: string) => void;
+  selectedGlobalYear: number;
 }
 
 interface MappingRow {
@@ -19,7 +20,7 @@ interface MappingRow {
     required: boolean;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate, selectedGlobalYear }) => {
   const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS'>('CSV');
   
   // CSV State
@@ -30,7 +31,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   // Template Form State
   const [formName, setFormName] = useState('');
   const [formSeparator, setFormSeparator] = useState(';');
-  const [formYear, setFormYear] = useState<number>(2026);
+  const [formYear, setFormYear] = useState<number>(selectedGlobalYear);
   const [mappingRows, setMappingRows] = useState<MappingRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,7 +40,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   const [editingRate, setEditingRate] = useState<SubsidyRate | null>(null);
   const [isCreatingRate, setIsCreatingRate] = useState(false);
   const [rateForm, setRateForm] = useState<Partial<SubsidyRate>>({});
-  const [selectedRateYear, setSelectedRateYear] = useState<number>(2026);
+  const [selectedRateYear, setSelectedRateYear] = useState<number>(selectedGlobalYear);
   const [rateCategoryFilter, setRateCategoryFilter] = useState<'ALL' | 'DIRECT' | 'ECO'>('ALL');
 
   // Crops Dictionary State
@@ -118,7 +119,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
     setIsCreatingTemplate(false);
     setFormName(template.name);
     setFormSeparator(template.separator);
-    setFormYear(template.year || 2026);
+    setFormYear(template.year || selectedGlobalYear);
     setMappingRows(initializeRows(template.type, template.mappings));
   };
 
@@ -127,7 +128,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
     setIsCreatingTemplate(true);
     setFormName('');
     setFormSeparator(';');
-    setFormYear(2026);
+    setFormYear(selectedGlobalYear);
     setMappingRows(initializeRows(activeCsvTab, {}));
   };
 
@@ -140,7 +141,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       // Pre-fill with data from the copied template
       setFormName(`${template.name} (Kopia)`);
       setFormSeparator(template.separator);
-      setFormYear(template.year || 2026);
+      setFormYear(template.year || selectedGlobalYear);
       setMappingRows(initializeRows(template.type, template.mappings));
   };
 
@@ -162,7 +163,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
       }));
   };
 
-  // --- CSV FILE PARSING LOGIC ---
   const handleImportTemplateFromCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -175,7 +175,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           const firstLine = text.split('\n')[0].trim();
           if (!firstLine) return;
 
-          // Auto-detect separator if not explicitly set by user choice (though we default to semicolon)
           let detectedSeparator = formSeparator;
           if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
               detectedSeparator = ';';
@@ -184,15 +183,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           }
           setFormSeparator(detectedSeparator);
 
-          // Parse Headers
-          // Handle quotes roughly
           const headers = firstLine.split(detectedSeparator).map(h => h.trim().replace(/^"|"$/g, ''));
 
-          // Auto-Map Logic
-          // We iterate over current mappingRows (System Fields) and try to find a match in CSV headers
           const updatedRows = mappingRows.map(row => {
               if (row.isSystem) {
-                  // Heuristic: Try to find a header that contains the label or key
                   const match = headers.find(h => 
                       h.toLowerCase() === row.label.toLowerCase() || 
                       h.toLowerCase().includes(row.label.toLowerCase()) ||
@@ -207,7 +201,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           alert(`Wczytano ${headers.length} nagłówków. Dopasowano automatycznie: ${updatedRows.filter(r => r.csvHeader).length} pól.`);
       };
       reader.readAsText(file);
-      // Reset input
       if(fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -302,7 +295,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
 
   const toggleCombinableCode = (code: string) => {
       let current = rateForm.combinableWith || '';
-      // Clean up string
       let codes = current.split(',').map(s => s.trim()).filter(s => s);
       
       if (codes.includes(code)) {
@@ -363,14 +355,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
   };
 
 
-  // Filter rates by selected year and category
   const activeRates = rates.filter(r => r.year === selectedRateYear);
   const activeTemplates = templates.filter(t => t.type === activeCsvTab);
   
   const directRates = activeRates.filter(r => r.category === 'DOPLATA');
   const ecoRates = activeRates.filter(r => r.category !== 'DOPLATA');
 
-  // Get all available short names for multi-select, excluding self
   const availableEcoCodes = activeRates
     .filter(r => r.category === 'EKOSCHEMAT' && r.shortName && r.id !== rateForm.id)
     .map(r => r.shortName!)
@@ -378,7 +368,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -391,7 +380,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
         </div>
       </div>
 
-      {/* TOP NAVIGATION TABS */}
       <div className="flex space-x-1 bg-slate-100 p-1 rounded-xl w-fit">
           <button
             onClick={() => setActiveMainTab('CSV')}
@@ -428,10 +416,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           </button>
       </div>
 
-      {/* CONTENT: CSV TEMPLATES */}
       {activeMainTab === 'CSV' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* ... Existing CSV Content ... */}
              <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex space-x-2 mb-6 border-b border-slate-100 pb-2">
                     <button onClick={() => { setActiveCsvTab('PARCELS'); setEditingTemplate(null); }} className={`pb-2 px-1 text-sm font-semibold transition-colors border-b-2 ${activeCsvTab === 'PARCELS' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500'}`}>Ewidencja Gruntów</button>
@@ -445,7 +431,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                 <div>
                                     <div className="font-semibold text-slate-800 text-sm">{tpl.name}</div>
                                     <div className="flex gap-2 text-xs text-slate-500">
-                                        <span className="bg-slate-100 px-1 rounded">Rok: {tpl.year || 2026}</span>
+                                        <span className="bg-slate-100 px-1 rounded">Rok: {tpl.year || selectedGlobalYear}</span>
                                         <span>Sep: '{tpl.separator}'</span>
                                     </div>
                                 </div>
@@ -463,16 +449,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                         </div>
                     ))}
                     <button onClick={handleCreateNewTemplate} className={`w-full py-3 border-2 border-dashed rounded-lg font-medium flex items-center justify-center gap-2 transition-colors mt-4 ${isCreatingTemplate && !editingTemplate ? 'border-emerald-500 text-emerald-600 bg-emerald-50' : 'border-slate-300 text-slate-500 hover:border-emerald-500'}`}>
-                        <Plus size={18} /> Dodaj Nowy
+                        <Plus size={18} /> Dodaj Nowy Szablon
                     </button>
                 </div>
             </div>
 
-            {/* Right: Editor */}
             <div className="lg:col-span-2">
                 {(editingTemplate || isCreatingTemplate) ? (
                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                        {/* ... Existing CSV Editor ... */}
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-800">{editingTemplate ? 'Edycja Szablonu' : (formName.includes('(Kopia)') ? 'Duplikowanie Szablonu' : 'Nowy Szablon')}</h3>
                             <div className="flex gap-2">
@@ -481,11 +465,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                             </div>
                         </div>
                         <form onSubmit={handleSubmitTemplate}>
-                            {/* General Settings */}
                             <div className="grid grid-cols-12 gap-4 mb-6">
                                 <div className="col-span-6">
                                     <label className="block text-sm font-medium mb-1">Nazwa Szablonu</label>
-                                    <input type="text" value={formName} onChange={e => setFormName(e.target.value)} required className="w-full border p-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="np. Ewidencja 2026" />
+                                    <input type="text" value={formName} onChange={e => setFormName(e.target.value)} required className="w-full border p-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="np. Ewidencja 2025" />
                                 </div>
                                 <div className="col-span-3">
                                     <label className="block text-sm font-medium mb-1">Rok Kampanii</label>
@@ -502,14 +485,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                 </div>
                             </div>
                             
-                            {/* Mapping Section */}
                             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                                 <div className="flex justify-between items-center mb-4">
                                     <h4 className="font-semibold text-slate-700 flex items-center gap-2">
                                         <RefreshCw size={16} /> Mapowanie Kolumn
                                     </h4>
                                     <div className="flex gap-2">
-                                        {/* CSV Import Button */}
                                         <div className="relative">
                                             <input 
                                                 type="file" 
@@ -584,13 +565,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           </div>
       )}
 
-      {/* CONTENT: RATES & ECOSCHEMES */}
       {activeMainTab === 'RATES' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left: Rates List */}
               <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[750px]">
                   
-                  {/* Year Selector / Filter */}
                   <div className="mb-4 pb-4 border-b border-slate-100">
                       <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Rok Kampanii</label>
                       <div className="flex gap-2">
@@ -614,7 +592,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                       <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{activeRates.length} poz.</span>
                   </h3>
                   
-                  {/* Category Filters */}
                   <div className="flex p-1 bg-slate-100 rounded-lg mb-4">
                       <button
                           onClick={() => setRateCategoryFilter('ALL')}
@@ -637,7 +614,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                   </div>
 
                   <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-                      {/* Section: Direct Payments */}
                       {(rateCategoryFilter === 'ALL' || rateCategoryFilter === 'DIRECT') && (
                           <div>
                             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sticky top-0 bg-white py-1 z-10">Płatności Bezpośrednie</div>
@@ -659,7 +635,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                           </div>
                       )}
 
-                      {/* Section: Eco-schemes */}
                       {(rateCategoryFilter === 'ALL' || rateCategoryFilter === 'ECO') && (
                           <div>
                             <div className={`text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 sticky top-0 bg-white py-1 z-10 ${rateCategoryFilter === 'ALL' ? 'mt-4' : ''}`}>Ekoschematy i Inne</div>
@@ -703,7 +678,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                   <button onClick={handleCreateRate} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Stawkę ({selectedRateYear})</button>
               </div>
 
-              {/* Right: Rate Editor */}
               <div className="lg:col-span-2">
                   {(editingRate || isCreatingRate) ? (
                       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">
@@ -783,7 +757,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                   </div>
                               </div>
                               
-                              {/* Extra Fields for Ecoschemes */}
                               {rateForm.category === 'EKOSCHEMAT' && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 mt-2">
                                     <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
@@ -816,7 +789,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                                                 <Link2 size={14}/> Można łączyć na 1 działce z:
                                             </label>
                                             
-                                            {/* Multi-select Grid */}
                                             <div className="bg-white border border-slate-300 rounded-lg p-3">
                                                 <div className="grid grid-cols-3 gap-2 mb-2">
                                                     {availableEcoCodes.map(code => {
@@ -880,10 +852,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
           </div>
       )}
 
-      {/* CONTENT: CROPS DICTIONARY */}
       {activeMainTab === 'CROPS' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-               {/* Left: Crops List */}
                <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col h-[750px]">
                   <div className="mb-4 pb-4 border-b border-slate-100 flex justify-between items-center">
                      <h3 className="font-bold text-slate-800">Słownik Roślin</h3>
@@ -918,7 +888,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                   <button onClick={handleCreateCrop} className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-emerald-700 shadow-sm"><Plus size={18} /> Dodaj Roślinę</button>
                </div>
 
-               {/* Right: Crop Editor */}
                <div className="lg:col-span-2">
                     {(editingCrop || isCreatingCrop) ? (
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in slide-in-from-right-4 duration-300">

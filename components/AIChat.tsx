@@ -1,10 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Sparkles } from 'lucide-react';
-import { chatWithAdvisor } from '../services/geminiService';
 
-const AIChat: React.FC = () => {
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, User, Bot, Sparkles, Database } from 'lucide-react';
+import { chatWithAdvisor } from '../services/geminiService';
+import { FarmData } from '../types';
+
+interface AIChatProps {
+  farmData: FarmData;
+}
+
+const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
   const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-    { role: 'model', text: 'Dzień dobry! Jestem Twoim wirtualnym doradcą rolniczym. Zapytaj mnie o terminy agrotechniczne, przepisy WPR 2023-2027 lub interpretację wymogów ARiMR.' }
+    { role: 'model', text: `Dzień dobry! Analizuję dane gospodarstwa ${farmData.farmName} (EP: ${farmData.profile.producerId}). W czym mogę Ci dzisiaj pomóc?` }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,7 +33,7 @@ const AIChat: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await chatWithAdvisor(messages, userMsg);
+      const response = await chatWithAdvisor(messages, userMsg, farmData);
       setMessages(prev => [...prev, { role: 'model', text: response }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: 'model', text: "Przepraszam, wystąpił błąd sieci." }]);
@@ -45,9 +51,17 @@ const AIChat: React.FC = () => {
 
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-         <Sparkles className="text-emerald-600" size={20} />
-         <h2 className="font-semibold text-slate-700">Asystent Prawny WPR</h2>
+      <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+         <div className="flex items-center gap-2">
+            <Sparkles className="text-emerald-600" size={20} />
+            <h2 className="font-semibold text-slate-700">Asystent Prawny WPR</h2>
+         </div>
+         {farmData.profile.producerId && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm animate-pulse">
+                <Database size={12} />
+                Kontekst: EP ${farmData.profile.producerId}
+            </div>
+         )}
       </div>
       
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
@@ -91,13 +105,13 @@ const AIChat: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
-            placeholder="Zapytaj o ekoschematy, terminy lub stawki..."
-            className="w-full pl-4 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none focus:bg-white transition-all"
+            placeholder="Zapytaj o swoje ekoschematy lub terminy..."
+            className="w-full pl-4 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none focus:bg-white transition-all font-medium"
           />
           <button 
             onClick={handleSend}
             disabled={loading || !input.trim()}
-            className="absolute right-2 p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 transition-colors"
+            className="absolute right-2 p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 transition-colors shadow-md"
           >
             <Send size={18} />
           </button>

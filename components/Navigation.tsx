@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Sprout, TrendingUp, MessageSquare, Calendar, Tractor, UserCircle, LogOut, Users, FileText, Settings } from 'lucide-react';
+import { LayoutDashboard, Sprout, TrendingUp, MessageSquare, Calendar, Tractor, UserCircle, LogOut, Users, FileText, Settings, Calculator } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface NavigationProps {
@@ -39,8 +39,9 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setView, onLogout 
       <nav className="flex-1 p-4 space-y-2">
         <NavItem view="DASHBOARD" icon={LayoutDashboard} label="Pulpit" />
         <NavItem view="FARMERS_LIST" icon={Users} label="Moi Rolnicy" />
+        <NavItem view="SIMULATION" icon={Calculator} label="Symulator" />
         <NavItem view="DOCUMENTS" icon={FileText} label="Dokumenty" />
-        <NavItem view="OPTIMIZATION" icon={TrendingUp} label="Optymalizacja WPR" />
+        <NavItem view="OPTIMIZATION" icon={TrendingUp} label="Optymalizacja AI" />
         <NavItem view="CALENDAR" icon={Calendar} label="Terminarz" />
         <NavItem view="CHAT" icon={MessageSquare} label="Asystent Prawny" />
         

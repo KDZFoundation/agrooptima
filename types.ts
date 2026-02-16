@@ -3,6 +3,18 @@ export type CropType = 'Pszenica' | 'Rzepak' | 'Kukurydza' | 'Burak Cukrowy' | '
 
 export type UserRole = 'ADVISOR' | 'FARMER';
 
+export interface User {
+    id: number | string;
+    email: string;
+    fullName: string;
+    role: UserRole;
+}
+
+export interface AuthResponse {
+    token: string;
+    user: User;
+}
+
 // Tabela: Słownik Upraw
 export interface CropDefinition {
     id: string;
@@ -217,4 +229,4 @@ export interface CsvTemplate {
     separator: string; // ';' lub ','
 }
 
-export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN';
+export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION';

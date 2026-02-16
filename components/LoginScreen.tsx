@@ -1,171 +1,201 @@
 
 import React, { useState, useEffect } from 'react';
-import { Tractor, ChevronRight, Lock, Sprout, Briefcase, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Tractor, ChevronRight, Lock, Sprout, Briefcase, Wifi, WifiOff, Loader2, User, Mail } from 'lucide-react';
 import { UserRole } from '../types';
 import { api } from '../services/api';
 
 interface LoginScreenProps {
-  onLogin: (role: UserRole, id: string) => void;
+  onLogin: (token: string, user: any) => void;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+  const [isRegistering, setIsRegistering] = useState(false);
   const [role, setRole] = useState<UserRole>('ADVISOR');
-  const [email, setEmail] = useState('user@agrooptima.pl');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('demo@agro.pl');
+  const [password, setPassword] = useState('haslo123');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'CHECKING' | 'ONLINE' | 'OFFLINE'>('CHECKING');
 
   useEffect(() => {
-      // Check API connection on mount to help user verify deployment status
       api.checkConnection().then(isOnline => {
           setApiStatus(isOnline ? 'ONLINE' : 'OFFLINE');
       });
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API delay
-    setTimeout(() => {
-      setLoading(false);
-      onLogin(role, email);
-    }, 1000);
+    setError(null);
+    try {
+        if (isRegistering) {
+            const res = await api.register({ email, password, fullName, role });
+            onLogin(res.token, res.user);
+        } else {
+            const res = await api.login(email, password);
+            onLogin(res.token, res.user);
+        }
+    } catch (err: any) {
+        setError(err.message || 'Wystąpił błąd podczas logowania.');
+    } finally {
+        setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-emerald-900 relative overflow-hidden flex-col justify-between p-12 text-white">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1625246333195-78d9c38ad449?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-20"></div>
-        <div className="relative z-10">
-            <div className="flex items-center space-x-3 text-emerald-400 mb-6">
-                <Tractor size={40} />
-                <span className="text-3xl font-bold tracking-tight">AgroOptima</span>
-            </div>
-            <h1 className="text-5xl font-bold leading-tight mb-6">
-                {role === 'ADVISOR' ? 'Platforma Doradcza WPR 2023-2027' : 'Mobilny Asystent Rolnika'}
-            </h1>
-            <p className="text-lg text-emerald-100 max-w-md leading-relaxed">
-                {role === 'ADVISOR' 
-                    ? 'Kompleksowe narzędzie do zarządzania gospodarstwami klientów. Automatyzacja wniosków i optymalizacja ekoschematów.'
-                    : 'Zarządzaj swoim gospodarstwem prosto z telefonu. Przesyłaj dokumenty, sprawdzaj pola i korzystaj z porad AI.'
-                }
-            </p>
+      <div className="hidden lg:flex lg:w-1/2 bg-emerald-950 relative overflow-hidden flex-col justify-between p-16 text-white border-r border-emerald-900/30">
+        <div className="absolute inset-0 z-0">
+            <img 
+                src="https://images.unsplash.com/photo-1625246333195-78d9c38ad449?q=80&w=2070&auto=format&fit=crop" 
+                alt="Agricultural fields"
+                className="w-full h-full object-cover opacity-35 scale-105"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-emerald-950/80 via-emerald-900/60 to-emerald-950/90"></div>
         </div>
         
         <div className="relative z-10">
-            <div className="flex items-center space-x-4 text-sm font-medium">
-                <span className="text-emerald-300">© 2024 AgroOptima Systems. v2.3</span>
-                
-                {/* Connection Status Indicator */}
-                <div className={`flex items-center gap-2 px-3 py-1 rounded-full bg-black/20 backdrop-blur-sm border ${apiStatus === 'ONLINE' ? 'border-emerald-500/50' : 'border-red-500/50'}`}>
+            <div className="flex items-center space-x-4 text-emerald-400 mb-10 drop-shadow-lg">
+                <Tractor size={56} className="filter drop-shadow-md" />
+                <span className="text-4xl font-black tracking-tighter">AgroOptima</span>
+            </div>
+            <h1 className="text-6xl font-black leading-tight mb-8 tracking-tighter">
+                {isRegistering ? 'Dołącz do społeczności' : (role === 'ADVISOR' ? 'Inteligentne Doradztwo WPR' : 'Twój Asystent Polowy')}
+            </h1>
+        </div>
+        
+        <div className="relative z-10">
+            <div className="flex flex-wrap items-center gap-6 text-sm font-bold uppercase tracking-widest text-emerald-300/80">
+                <span>© 2025 AGROOPTIMA AI</span>
+                <div className={`flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-black/40 backdrop-blur-xl border ${apiStatus === 'ONLINE' ? 'border-emerald-500/50' : 'border-red-500/50'}`}>
                     {apiStatus === 'CHECKING' && <Loader2 size={14} className="animate-spin text-emerald-200" />}
                     {apiStatus === 'ONLINE' && <Wifi size={14} className="text-emerald-400" />}
                     {apiStatus === 'OFFLINE' && <WifiOff size={14} className="text-red-400" />}
-                    
-                    <span className={apiStatus === 'ONLINE' ? 'text-emerald-100' : 'text-red-100'}>
-                        {apiStatus === 'CHECKING' ? 'Łączenie...' : (apiStatus === 'ONLINE' ? 'System Online' : 'Tryb Offline')}
+                    <span className={apiStatus === 'ONLINE' ? 'text-emerald-200' : 'text-red-200'}>
+                        {apiStatus === 'CHECKING' ? 'Synchronizacja...' : (apiStatus === 'ONLINE' ? 'System Online' : 'Tryb Lokalny')}
                     </span>
                 </div>
             </div>
         </div>
       </div>
 
-      {/* Right Side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
-        <div className="w-full max-w-md space-y-8">
+      {/* Right Side - Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white md:bg-slate-50 overflow-y-auto">
+        <div className="w-full max-w-md space-y-8 py-12">
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-slate-900">Witaj w AgroOptima</h2>
-            <p className="text-slate-500 mt-2">Wybierz tryb logowania, aby kontynuować.</p>
+            <div className="lg:hidden flex justify-center mb-6">
+                <Tractor size={48} className="text-emerald-600" />
+            </div>
+            <h2 className="text-4xl font-black text-slate-900 tracking-tight">{isRegistering ? 'Zarejestruj się' : 'Witaj ponownie'}</h2>
+            <p className="text-slate-500 mt-2 font-medium">Podaj swoje dane, aby uzyskać dostęp.</p>
           </div>
 
-          {/* Role Toggle */}
-          <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl">
-              <button
-                type="button"
-                onClick={() => { setRole('ADVISOR'); setEmail('user@agrooptima.pl'); }}
-                className={`flex items-center justify-center space-x-2 py-3 rounded-lg font-semibold transition-all ${
-                    role === 'ADVISOR' 
-                    ? 'bg-white text-emerald-700 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                  <Briefcase size={18} />
-                  <span>Doradca</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setRole('FARMER'); setEmail('050237165'); }}
-                className={`flex items-center justify-center space-x-2 py-3 rounded-lg font-semibold transition-all ${
-                    role === 'FARMER' 
-                    ? 'bg-white text-emerald-700 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                  <Sprout size={18} />
-                  <span>Rolnik</span>
-              </button>
-          </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+                <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-bold rounded-2xl animate-in fade-in duration-300">
+                    {error}
+                </div>
+            )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                {role === 'ADVISOR' ? 'Email Służbowy' : 'Email / Nr Producenta'}
-              </label>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-shadow"
-                required
-              />
+            {isRegistering && (
+                <>
+                    <div className="grid grid-cols-2 gap-3 bg-slate-200/50 p-2 rounded-[1.5rem] border border-slate-200 shadow-inner">
+                        <button
+                            type="button"
+                            onClick={() => setRole('ADVISOR')}
+                            className={`flex items-center justify-center space-x-2 py-3 rounded-2xl font-black transition-all duration-300 ${role === 'ADVISOR' ? 'bg-white text-emerald-700 shadow-lg' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <Briefcase size={18} />
+                            <span>DORADCA</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setRole('FARMER')}
+                            className={`flex items-center justify-center space-x-2 py-3 rounded-2xl font-black transition-all duration-300 ${role === 'FARMER' ? 'bg-white text-emerald-700 shadow-lg' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <Sprout size={18} />
+                            <span>ROLNIK</span>
+                        </button>
+                    </div>
+
+                    <div className="group">
+                        <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Imię i Nazwisko</label>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={fullName}
+                                onChange={(e) => setFullName(e.target.value)}
+                                className="w-full pl-12 pr-5 py-4 bg-white border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:outline-none transition-all shadow-sm font-bold text-slate-800"
+                                placeholder="Anna Nowak"
+                                required
+                            />
+                            <User className="absolute left-4 top-4.5 text-slate-300" size={20} />
+                        </div>
+                    </div>
+                </>
+            )}
+
+            <div className="group">
+              <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Email</label>
+              <div className="relative">
+                <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-12 pr-5 py-4 bg-white border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:outline-none transition-all shadow-sm font-bold text-slate-800"
+                    placeholder="example@agro.pl"
+                    required
+                />
+                <Mail className="absolute left-4 top-4.5 text-slate-300" size={20} />
+              </div>
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Hasło
-              </label>
+            <div className="group">
+              <label className="block text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Hasło</label>
               <div className="relative">
                 <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-shadow"
+                    className="w-full pl-12 pr-5 py-4 bg-white border-2 border-slate-200 rounded-2xl focus:border-emerald-500 focus:outline-none transition-all shadow-sm font-bold text-slate-800"
+                    placeholder="••••••••"
                     required
                 />
-                <Lock className="absolute right-3 top-3.5 text-slate-400" size={18} />
+                <Lock className="absolute left-4 top-4.5 text-slate-300" size={20} />
               </div>
-            </div>
-
-            <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
-                    <span className="text-slate-600">Zapamiętaj mnie</span>
-                </label>
-                <a href="#" className="text-emerald-600 hover:text-emerald-500 font-medium">Nie pamiętasz hasła?</a>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-3 rounded-lg font-semibold hover:bg-emerald-700 focus:ring-4 focus:ring-emerald-500/30 transition-all flex items-center justify-center space-x-2"
+              className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg hover:bg-emerald-700 hover:shadow-xl hover:-translate-y-0.5 focus:ring-4 focus:ring-emerald-500/20 transition-all flex items-center justify-center space-x-3 active:scale-95"
             >
-              {loading ? (
-                 <span>Logowanie...</span>
-              ) : (
+              {loading ? <Loader2 className="animate-spin" /> : (
                  <>
-                    <span>Zaloguj jako {role === 'ADVISOR' ? 'Doradca' : 'Rolnik'}</span>
-                    <ChevronRight size={20} />
+                    <span>{isRegistering ? 'UTWÓRZ KONTO' : 'ZALOGUJ SIĘ'}</span>
+                    <ChevronRight size={24} />
                  </>
               )}
             </button>
+            <div className="text-center">
+                <p className="text-xs text-slate-400">
+                    Tryb demo: <strong>demo@agro.pl</strong> / <strong>haslo123</strong>
+                </p>
+            </div>
           </form>
 
           <div className="pt-6 border-t border-slate-200 text-center">
-             <p className="text-sm text-slate-500">
-                Nie masz konta?{' '}
-                <a href="#" className="text-emerald-600 font-semibold hover:underline">Zarejestruj gospodarstwo</a>
-             </p>
+             <button 
+                onClick={() => setIsRegistering(!isRegistering)}
+                className="text-sm font-medium text-slate-500"
+             >
+                {isRegistering ? 'Masz już konto?' : 'Nie masz jeszcze konta?'} {' '}
+                <span className="text-emerald-600 font-black hover:underline underline-offset-4">
+                    {isRegistering ? 'Zaloguj się' : 'Zarejestruj się teraz'}
+                </span>
+             </button>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, Sprout, FileText, MessageSquare, Calendar } from 'lucide-react';
+import { LayoutDashboard, Sprout, FileText, MessageSquare, Calendar, Calculator } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface MobileNavigationProps {
@@ -27,9 +27,9 @@ const MobileNavigation: React.FC<MobileNavigationProps> = ({ currentView, setVie
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-40 md:hidden">
       <div className="flex justify-around items-center h-16 safe-area-pb">
         <NavItem view="DASHBOARD" icon={LayoutDashboard} label="Pulpit" />
-        <NavItem view="FIELDS" icon={Sprout} label="Moje Pola" />
-        <NavItem view="CALENDAR" icon={Calendar} label="Planer" />
-        <NavItem view="DOCUMENTS" icon={FileText} label="Dokumenty" />
+        <NavItem view="SIMULATION" icon={Calculator} label="Symulator" />
+        <NavItem view="FIELDS" icon={Sprout} label="Pola" />
+        <NavItem view="DOCUMENTS" icon={FileText} label="Pliki" />
         <NavItem view="CHAT" icon={MessageSquare} label="Asystent" />
       </div>
     </div>

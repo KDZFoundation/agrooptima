@@ -1,129 +1,208 @@
 
-import React, { useState, useMemo } from 'react';
-import { ArrowUpRight, Calendar, FileText, Sun, FileSpreadsheet, Map, File, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Search, Leaf, AlertOctagon, AlertCircle } from 'lucide-react';
-import { FarmData, FarmerDocument, Field } from '../types';
+import React, { useState, useMemo, useRef } from 'react';
+import { ArrowUpRight, Calendar, FileText, Sun, Map, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Leaf, AlertOctagon, X, Wallet, Info, UploadCloud, Loader2, Database } from 'lucide-react';
+import { FarmData, FarmerDocument, Field, EcoSchemeCalculation } from '../types';
 import { analyzeFarmState } from '../services/farmLogic';
+import { SUBSIDY_RATES_2025 } from '../constants';
+import { analyzeDocument } from '../services/geminiService';
 
 interface DashboardProps {
   farmData: FarmData;
   recentDocuments: FarmerDocument[];
   onViewAllDocuments: () => void;
   onManageFields: (tab?: 'PARCELS' | 'CROPS') => void;
+  selectedYear: number;
+  setSelectedYear: (year: number) => void;
+  onAddDocument: (doc: FarmerDocument) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields }) => {
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields, selectedYear, setSelectedYear, onAddDocument }) => {
+  const [showSubsidyDetails, setShowSubsidyDetails] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const availableYears = [2026, 2025, 2024, 2023, 2022, 2021];
 
-  // 1. Logic to get crop for a specific year
-  const getCropForYear = (field: Field, year: number): string => {
-    if (year === 2026) {
-        return field.crop || 'Nieznana';
-    }
-    const historyEntry = field.history?.find(h => h.year === year);
-    // If we have crop parts, show "Mieszana" or the first one
-    if (historyEntry?.cropParts && historyEntry.cropParts.length > 0) {
-        return historyEntry.cropParts.length > 1 ? 'Wielu upraw' : historyEntry.cropParts[0].crop;
-    }
-    return historyEntry ? historyEntry.crop : 'Brak danych';
-  };
-
-  // 2. Calculate Stats & Analyze Logic
-  const { totalArea, cropSummary, applicationDoc, analysisReport } = useMemo(() => {
-    let areaSum = 0;
+  const { 
+    totalArea, 
+    cropSummary, 
+    applicationDoc, 
+    analysisReport, 
+    basicPaymentsBreakdown, 
+    hasDataInOtherYears,
+    totalBasicSubsidy,
+    grandTotalSubsidy,
+    registryParcels
+  } = useMemo(() => {
     const summary: Record<string, number> = {};
+    let otherYears = false;
+    
+    // Mapa deduplikacji dla Ewidencji: Klucz (Nr Rej) -> Rekord Pola
+    const registryMap: Record<string, Field> = {};
 
-    // Basic Stats Calculation
     farmData.fields.forEach(field => {
-        const hist = field.history?.find(h => h.year === selectedYear);
+        const histForSelected = field.history?.find(h => h.year === selectedYear);
+        if (field.history?.some(h => h.year !== selectedYear)) otherYears = true;
         
-        // Check if this is a "Part" from crop structure (has designation). If so, we might skip it for total area if it's already counted in the main parcel
-        // HOWEVER, for dashboard stats, we usually want unique parcels.
-        // Assuming farmData.fields contains distinct parcels now (after import merge fix).
-        
-        // Use Eligible Area (PEG) as primary dimension if available, otherwise Geodetic Area
-        let area = hist?.eligibleArea || hist?.area;
-        
-        if (area === undefined) {
-            if (selectedYear === 2026) area = field.eligibleArea || field.area;
-            else if (hist) area = field.eligibleArea || field.area;
-            else area = 0;
-        }
-        
-        // Only sum up if it's a root parcel (no designation) to avoid double counting if structure is mixed
-        if (!hist || (!hist.designation && !hist.designationZal)) {
-             areaSum += area;
-        }
+        if (!histForSelected) return;
 
-        const crop = getCropForYear(field, selectedYear);
-        if (crop !== 'Nieznana' && crop !== 'Brak danych') {
-            if (!summary[crop]) summary[crop] = 0;
-            // For crop summary, we use the area of this specific entry
-            summary[crop] += area;
+        // Klucz deduplikacji identyczny z App.tsx
+        const key = (field.registrationNumber || field.name || field.id).trim().toLowerCase().replace(/[\s\.\-_]/g, '');
+        
+        // Budujemy rejestr unikalnych działek
+        if (!registryMap[key]) {
+            registryMap[key] = field;
+        } else {
+            // Jeśli mamy duplikat, wybieramy ten rekord, który ma zdefiniowany PEG (eligibleArea)
+            const existingHist = registryMap[key].history?.find(h => h.year === selectedYear);
+            if (!existingHist || ((existingHist.eligibleArea || 0) < (histForSelected.eligibleArea || 0))) {
+                registryMap[key] = field;
+            }
+        }
+        
+        // Statystyki zasiewów (sumujemy wszystkie części, bo to struktura roślin)
+        if (histForSelected.cropParts && histForSelected.cropParts.length > 0) {
+            histForSelected.cropParts.forEach(part => {
+                const cropName = part.crop || 'Nieznana';
+                if (cropName !== 'Nieznana' && cropName !== 'Brak danych') {
+                    if (!summary[cropName]) summary[cropName] = 0;
+                    summary[cropName] += (part.area || 0);
+                }
+            });
+        } else {
+            const cropName = histForSelected.crop || 'Nieznana';
+            if (cropName !== 'Nieznana' && cropName !== 'Brak danych') {
+                if (!summary[cropName]) summary[cropName] = 0;
+                // Zasiewy sumujemy po area (powierzchnia uprawy)
+                summary[cropName] += (histForSelected.area || field.area || 0);
+            }
         }
     });
 
-    // Run Business Logic Analysis
-    const report = analyzeFarmState(farmData, selectedYear);
+    // OBLICZENIE SUMY PEG: Tylko unikalne działki z registryMap
+    const sortedRegistry = Object.values(registryMap).sort((a,b) => (a.registrationNumber || '').localeCompare(b.registrationNumber || ''));
+    const areaSum = sortedRegistry.reduce((sum, field) => {
+        const hist = field.history?.find(h => h.year === selectedYear);
+        return sum + (hist?.eligibleArea || 0);
+    }, 0);
 
-    // Find PDF
+    // Przekazujemy skorygowaną powierzchnię do analizy logiki ekoschematów
+    const report = analyzeFarmState({ ...farmData, profile: { ...farmData.profile, totalAreaUR: areaSum } }, selectedYear);
+    
     const appDoc = recentDocuments?.find(d => 
         (d.category === 'WNIOSEK' || d.type === 'PDF') && 
         d.campaignYear === selectedYear.toString()
     );
 
+    const bwsRate = SUBSIDY_RATES_2025.find(r => r.id === 'P25_01')?.rate || 488.55;
+    const redRate = SUBSIDY_RATES_2025.find(r => r.id === 'P25_02')?.rate || 176.84;
+    const uppRate = SUBSIDY_RATES_2025.find(r => r.id === 'P25_19')?.rate || 55.95;
+
+    const bwsTotal = areaSum * bwsRate;
+    const redArea = Math.min(areaSum, 30);
+    const redTotal = redArea * redRate;
+    const uppTotal = areaSum * uppRate;
+
+    const basicBreakdown = [
+        { name: 'Podstawowe wsparcie dochodów (BWS)', rate: bwsRate, unit: 'PLN/ha', amount: areaSum, total: bwsTotal },
+        { name: 'Płatność redystrybucyjna (do 30 ha)', rate: redRate, unit: 'PLN/ha', amount: redArea, total: redTotal },
+        { name: 'Uzupełniająca płatność podstawowa (UPP)', rate: uppRate, unit: 'PLN/ha', amount: areaSum, total: uppTotal }
+    ];
+
+    const basicSum: number = basicBreakdown.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
+    const totalEstValue: number = Number(report.totalEstimatedValue) || 0;
+    const grandTotal: number = (basicSum as number) + (totalEstValue as number);
+
     return { 
         totalArea: areaSum, 
         cropSummary: summary,
         applicationDoc: appDoc,
-        analysisReport: report
+        analysisReport: report,
+        basicPaymentsBreakdown: basicBreakdown,
+        hasDataInOtherYears: otherYears && areaSum === 0,
+        totalBasicSubsidy: basicSum,
+        grandTotalSubsidy: grandTotal,
+        registryParcels: sortedRegistry
     };
   }, [farmData, selectedYear, recentDocuments]);
 
   const sortedCrops = (Object.entries(cropSummary) as [string, number][]).sort((a, b) => b[1] - a[1]);
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1]);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setIsUploading(true);
+
+      try {
+        const base64 = await fileToBase64(file);
+        const analysis = await analyzeDocument(base64, file.type);
+
+        const newDoc: FarmerDocument = {
+          id: Math.random().toString(36).substr(2, 9),
+          name: file.name,
+          type: file.name.split('.').pop()?.toUpperCase() as any || 'PDF',
+          category: analysis.category || 'WNIOSEK',
+          campaignYear: analysis.campaignYear || selectedYear.toString(),
+          size: `${(file.size / 1024).toFixed(2)} KB`,
+          uploadDate: new Date().toISOString().split('T')[0]
+        };
+
+        onAddDocument(newDoc);
+      } catch (error) {
+        console.error("Error processing document:", error);
+        alert("Wystąpił błąd podczas analizy dokumentu e-Wniosek.");
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const getDeadlineInfo = (year: number) => {
-      if (year === 2026) return { date: '15 Maja', desc: 'Termin składania wniosków podstawowych' };
+      if (year === 2026) return { date: '15 Maja', desc: 'Termin składania wniosków' };
       if (year === 2025) return { date: 'Zakończono', desc: 'Kampania zamknięta' };
       return { date: 'Archiwum', desc: 'Dane historyczne' };
   };
   const deadline = getDeadlineInfo(selectedYear);
 
-  // Filter fields for "Okno Działek" - Only show purely Registry Parcels (no crop designations)
-  const registryParcels = farmData.fields.filter(field => {
-      const hist = field.history?.find(h => h.year === selectedYear);
-      // Exclude if it has a designation (it's a crop part)
-      if (hist && (hist.designation || hist.designationZal)) return false;
-      // Exclude if no history exists for this year (unless it's the planning year)
-      if (!hist && selectedYear !== 2026) return false;
-      return true;
-  });
-
   return (
     <div className="space-y-6">
-      
-      {/* HEADER: TITLE + YEAR SELECTOR */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-           <h2 className="text-2xl font-bold text-slate-800">
-             Panel Główny
-           </h2>
-           <p className="text-slate-500">Klient: <span className="font-semibold text-emerald-600">{farmData.farmName}</span></p>
+           <div className="flex items-center gap-3 mb-1">
+             <h2 className="text-2xl font-black text-slate-800 tracking-tight">Panel Główny</h2>
+             <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-200 flex items-center gap-1">
+               <Database size={12} />
+               EP: {farmData.profile.producerId || '050237165'}
+             </span>
+           </div>
+           <p className="text-slate-500 font-medium">Rolnik: <span className="text-emerald-600 font-bold">{farmData.farmName || 'Gospodarstwo Piotr Linkowski'}</span></p>
         </div>
         
         <div className="flex items-center gap-4">
-             <div className="hidden md:flex items-center space-x-2 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-full border border-yellow-200 text-sm font-medium">
-                <Sun size={16} />
+            <div className="hidden md:flex items-center space-x-2 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-full border border-yellow-200 text-sm font-medium shadow-sm">
+                <Sun size={16} className="animate-pulse" />
                 <span>Dziś: 22°C</span>
             </div>
             
-            <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm px-3 py-2">
+            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl shadow-inner px-4 py-2">
                 <Calendar size={18} className="text-slate-400 mr-2" />
-                <span className="text-sm font-semibold text-slate-600 mr-2">Rok Kampanii:</span>
+                <span className="text-xs font-black text-slate-400 mr-3 uppercase tracking-tighter">Kampania:</span>
                 <select 
                     value={selectedYear} 
                     onChange={(e) => setSelectedYear(Number(e.target.value))}
-                    className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    className="bg-transparent font-black text-slate-800 focus:outline-none cursor-pointer text-sm"
                 >
                     {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
@@ -131,7 +210,18 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
         </div>
       </div>
 
-      {/* SECTION: Carbon Farming Status (Rolnictwo Węglowe) */}
+      {hasDataInOtherYears && (
+          <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center gap-4 animate-bounce shadow-sm">
+              <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                  <AlertOctagon size={24} />
+              </div>
+              <div className="flex-1">
+                  <h4 className="font-black text-amber-800 text-sm">Uwaga: Brak danych dla roku {selectedYear}</h4>
+                  <p className="text-xs text-amber-700">W bazie znajdują się dane dla innych lat kampanii. Przełącz rok w prawym górnym rogu.</p>
+              </div>
+          </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-emerald-50/50">
               <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -150,43 +240,21 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
           </div>
           <div className="p-6">
               <div className="flex flex-col md:flex-row justify-between mb-2 text-sm">
-                  <span className="text-slate-500">Zgromadzone punkty: <span className="font-bold text-slate-800 text-lg">{analysisReport.totalPoints.toFixed(1)} pkt</span></span>
-                  <span className="text-slate-500">Wymagane minimum (25% UR): <span className="font-bold text-slate-800">{analysisReport.requiredPoints.toFixed(1)} pkt</span></span>
+                  <span className="text-slate-500 font-medium">Zgromadzone punkty: <span className="font-black text-slate-800 text-xl ml-1">{(Number(analysisReport.totalPoints) || 0).toFixed(1)} pkt</span></span>
+                  <span className="text-slate-500 font-medium">Wymagane minimum (25% UR): <span className="font-bold text-slate-800 ml-1">{(Number(analysisReport.requiredPoints) || 0).toFixed(1)} pkt</span></span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-4 overflow-hidden mb-2">
+              <div className="w-full bg-slate-200 rounded-full h-4 overflow-hidden mb-2 shadow-inner">
                   <div 
-                      className={`h-full rounded-full transition-all duration-500 ${analysisReport.isEntryConditionMet ? 'bg-gradient-to-r from-emerald-500 to-green-400' : 'bg-amber-400'}`}
-                      style={{ width: `${Math.min((analysisReport.totalPoints / (analysisReport.requiredPoints || 1)) * 100, 100)}%` }}
+                      className={`h-full rounded-full transition-all duration-700 ${analysisReport.isEntryConditionMet ? 'bg-gradient-to-r from-emerald-500 to-green-400' : 'bg-amber-400'}`}
+                      style={{ width: `${Math.min((Number(analysisReport.totalPoints) / (Number(analysisReport.requiredPoints) || 1)) * 100, 100)}%` }}
                   ></div>
               </div>
-              <p className="text-xs text-slate-400">
-                  Przelicznik: 1 pkt ≈ 100 PLN. Szacowana wartość ekoschematów: <span className="font-bold text-emerald-600">{analysisReport.totalEstimatedValue.toLocaleString('pl-PL', {style:'currency', currency:'PLN'})}</span>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Szacowana wartość ekoschematów: <span className="font-black text-emerald-600">{(Number(analysisReport.totalEstimatedValue) || 0).toLocaleString('pl-PL', {style:'currency', currency:'PLN'})}</span>
               </p>
           </div>
       </div>
 
-      {/* SECTION: Validation Issues */}
-      {analysisReport.validationIssues.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <h3 className="font-bold text-red-800 flex items-center gap-2 mb-3">
-                  <AlertOctagon size={20} />
-                  Walidacja Wniosku - Wykryte Błędy
-              </h3>
-              <div className="space-y-2">
-                  {analysisReport.validationIssues.map((issue, idx) => (
-                      <div key={idx} className="bg-white p-3 rounded-lg border border-red-100 shadow-sm flex gap-3 items-start">
-                          {issue.type === 'ERROR' ? <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={18}/> : <AlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={18}/>}
-                          <div>
-                              <div className="font-semibold text-slate-800 text-sm">{issue.fieldName}</div>
-                              <p className="text-sm text-slate-600">{issue.message}</p>
-                          </div>
-                      </div>
-                  ))}
-              </div>
-          </div>
-      )}
-
-      {/* ROW 1: KEY METRICS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Powierzchnia UR (PEG)" 
@@ -197,10 +265,12 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
         />
         <StatCard 
           title="Szacowane Dopłaty" 
-          value={`~ ${(analysisReport.totalEstimatedValue + (totalArea * 500)).toLocaleString('pl-PL')} PLN`} 
+          value={`~ ${(Number(grandTotalSubsidy) || 0).toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN`} 
           subtext="Podstawa + Ekoschematy"
           icon={ArrowUpRight}
           color="emerald"
+          onClick={() => setShowSubsidyDetails(true)}
+          isInteractive
         />
         <StatCard 
           title="Najbliższy Termin" 
@@ -210,13 +280,12 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
           color="amber"
         />
         
-        {/* PDF Application Card */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-4 -mt-4 z-0"></div>
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden group/doc">
+             <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-4 -mt-4 z-0 transition-all group-hover/doc:w-20 group-hover/doc:h-20"></div>
              <div className="relative z-10">
                 <div className="flex justify-between items-start mb-2">
-                    <span className="text-slate-500 text-sm font-medium">Wniosek o Płatność</span>
-                    <FileText size={20} className="text-red-500" />
+                    <span className="text-slate-500 text-xs font-black uppercase tracking-widest">E-Wniosek</span>
+                    {isUploading ? <Loader2 size={20} className="text-emerald-500 animate-spin" /> : <FileText size={20} className={`transition-colors ${applicationDoc ? 'text-emerald-600' : 'text-red-500'}`} />}
                 </div>
                 {applicationDoc ? (
                     <div>
@@ -224,73 +293,83 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                             {applicationDoc.name}
                         </div>
                         <div className="flex items-center gap-2">
-                             <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                             <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
                                 <CheckCircle size={10} /> Przyjęto
                              </span>
                              <span className="text-xs text-slate-400">{applicationDoc.uploadDate}</span>
                         </div>
                     </div>
                 ) : (
-                    <div>
-                        <div className="text-lg font-bold text-slate-400 italic mb-1">
-                            Brak pliku
+                    <div 
+                        className={`cursor-pointer transition-all ${isUploading ? 'opacity-50' : 'hover:scale-[1.02]'}`}
+                        onClick={() => !isUploading && fileInputRef.current?.click()}
+                    >
+                        <div className="text-lg font-bold text-slate-400 italic mb-1 flex items-center gap-2">
+                            {isUploading ? 'Analiza AI...' : 'Brak pliku'}
+                            {!isUploading && <UploadCloud size={16} className="text-slate-300" />}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                        <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
                              <AlertTriangle size={12} className="text-amber-500" />
-                             <span>Nie wgrano wniosku PDF</span>
+                             <span>Nie wgrano PDF z ARiMR</span>
                         </div>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            accept=".pdf" 
+                            onChange={handleFileUpload}
+                        />
                     </div>
                 )}
              </div>
              {applicationDoc && (
-                 <button className="mt-4 w-full flex items-center justify-center gap-2 text-sm text-red-600 font-medium hover:bg-red-50 py-1.5 rounded transition-colors">
+                 <button className="mt-4 w-full flex items-center justify-center gap-2 text-xs text-emerald-600 font-black uppercase tracking-widest hover:bg-emerald-50 py-1.5 rounded transition-colors border border-emerald-100">
                     <Download size={14} /> Pobierz
+                 </button>
+             )}
+             {!applicationDoc && !isUploading && (
+                 <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mt-4 w-full flex items-center justify-center gap-2 text-xs text-emerald-600 font-black uppercase tracking-widest hover:bg-emerald-50 py-2 rounded-lg border border-emerald-100 transition-all shadow-sm"
+                 >
+                    <UploadCloud size={14} /> Wczytaj e-Wniosek
                  </button>
              )}
         </div>
       </div>
 
-      {/* ROW 2: MAIN WINDOWS (Parcels & Crops) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* WINDOW 1: PARCELS (FILTERED TO SHOW ONLY REGISTRY) */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
                     <Layers className="text-emerald-600" size={20}/>
-                    <h3 className="font-bold text-slate-800">Okno Działek ({selectedYear})</h3>
+                    <h3 className="font-bold text-slate-800">Ewidencja Działek</h3>
                 </div>
-                <button 
-                    onClick={() => onManageFields('PARCELS')}
-                    className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center"
-                >
-                    Pełna Ewidencja <ChevronRight size={16} />
+                <button onClick={() => onManageFields('PARCELS')} className="text-xs text-emerald-600 hover:text-emerald-700 font-black uppercase tracking-widest flex items-center">
+                    Zarządzaj <ChevronRight size={16} />
                 </button>
             </div>
-            
             <div className="flex-1 overflow-auto pr-1">
                 {registryParcels.length > 0 ? (
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs sticky top-0 z-10">
+                        <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-black sticky top-0 z-10">
                             <tr>
-                                <th className="p-2 font-semibold bg-slate-50">Nr/Nazwa</th>
-                                <th className="p-2 font-semibold bg-slate-50">Pow. PEG</th>
+                                <th className="p-2 bg-slate-50">Nr/Nazwa</th>
+                                <th className="p-2 bg-slate-50 text-right">Pow. PEG</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {registryParcels.map(field => {
                                 const hist = field.history?.find(h => h.year === selectedYear);
-                                // Display PEG (Eligible) if available
-                                let area = hist?.eligibleArea || hist?.area || (selectedYear === 2026 ? (field.eligibleArea || field.area) : 0);
-                                
+                                // TYLKO ELIGIBLE AREA (PEG)
+                                let area = hist?.eligibleArea || 0;
                                 return (
-                                <tr key={field.id} className="hover:bg-slate-50">
+                                <tr key={field.id} className="hover:bg-slate-50 transition-colors">
                                     <td className="p-2 font-medium text-slate-700">
-                                        <div className="truncate max-w-[120px]" title={field.name}>{field.name}</div>
-                                        <span className="block text-xs text-slate-400 font-mono">{field.registrationNumber}</span>
+                                        <div className="truncate max-w-[150px]" title={field.name}>{field.name}</div>
+                                        <span className="block text-[10px] text-slate-400 font-mono">{field.registrationNumber}</span>
                                     </td>
-                                    <td className="p-2 text-slate-600">
-                                        <div>{area.toFixed(2)}</div>
-                                    </td>
+                                    <td className="p-2 text-right text-slate-600 font-mono font-bold text-emerald-600">{area.toFixed(2)} ha</td>
                                 </tr>
                                 );
                             })}
@@ -298,54 +377,45 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     </table>
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400 p-4">
-                        <Layers size={32} className="mb-2 opacity-50"/>
-                        <p className="text-sm">Brak zdefiniowanych działek</p>
+                        <Layers size={32} className="mb-2 opacity-30"/>
+                        <p className="text-sm text-center font-medium">Brak danych ewidencji na rok {selectedYear}.</p>
+                        <p className="text-[10px] text-slate-300 text-center mt-1 uppercase font-black">Użyj Menedżera Pól</p>
                     </div>
                 )}
             </div>
           </div>
 
-          {/* WINDOW 2: CROPS */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[400px]">
             <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
                     <Sprout className="text-emerald-600" size={20}/>
                     <h3 className="font-bold text-slate-800">Struktura Zasiewów</h3>
                 </div>
-                <button 
-                    onClick={() => onManageFields('CROPS')}
-                    className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center"
-                >
+                <button onClick={() => onManageFields('CROPS')} className="text-xs text-emerald-600 hover:text-emerald-700 font-black uppercase tracking-widest flex items-center">
                     Zarządzaj <ChevronRight size={16} />
                 </button>
             </div>
-
             <div className="flex-1 overflow-auto pr-1">
                  {sortedCrops.length > 0 ? (
                      <div className="space-y-4">
                         {sortedCrops.map(([crop, area]) => {
-                            const percentage = totalArea > 0 ? ((area / totalArea) * 100).toFixed(1) : "0.0";
+                            // Suma zasiewów służy tylko do procentowania
+                            const totalCropArea = Object.values(cropSummary).reduce<number>((acc, val) => acc + (val as number), 0);
+                            const percentage = totalCropArea > 0 ? ((area / totalCropArea) * 100).toFixed(1) : "0.0";
                             return (
                                 <div key={crop} className="relative">
                                     <div className="flex items-center justify-between mb-1">
                                         <div className="flex items-center gap-2">
-                                            <div className="p-1 bg-emerald-100 rounded text-emerald-700">
-                                                <Sprout size={12} />
-                                            </div>
-                                            <span className="text-sm font-semibold text-slate-700">{crop}</span>
+                                            <div className="p-1 bg-emerald-50 rounded text-emerald-600 border border-emerald-100"><Sprout size={12} /></div>
+                                            <span className="text-sm font-bold text-slate-700">{crop}</span>
                                         </div>
-                                        <div className="text-right">
-                                            <span className="text-sm font-bold text-slate-800">{area.toFixed(2)} ha</span>
-                                        </div>
+                                        <span className="text-sm font-black text-slate-800 font-mono">{area.toFixed(2)} ha</span>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                            <div 
-                                                className="h-full bg-emerald-500 rounded-full" 
-                                                style={{ width: `${percentage}%` }}
-                                            ></div>
+                                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${percentage}%` }}></div>
                                         </div>
-                                        <span className="text-xs text-slate-400 w-8 text-right">{percentage}%</span>
+                                        <span className="text-[10px] text-slate-400 w-8 text-right font-black">{percentage}%</span>
                                     </div>
                                 </div>
                             );
@@ -353,18 +423,153 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                      </div>
                  ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400 p-4">
-                        <PieChart size={32} className="mb-2 opacity-50"/>
-                        <p className="text-sm">Brak zdefiniowanych upraw dla roku {selectedYear}</p>
+                        <PieChart size={32} className="mb-2 opacity-30"/>
+                        <p className="text-sm text-center font-medium">Brak upraw na rok {selectedYear}.</p>
+                        <p className="text-[10px] text-slate-300 text-center mt-1 uppercase font-black">Użyj Menedżera Pól</p>
                     </div>
                  )}
             </div>
           </div>
       </div>
+
+      {showSubsidyDetails && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
+                  <div className="bg-emerald-700 p-8 text-white flex justify-between items-center relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+                      <div className="flex items-center gap-4 relative z-10">
+                          <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-sm">
+                            <Wallet size={32} />
+                          </div>
+                          <div>
+                              <h3 className="text-2xl font-black tracking-tight">Kalkulacja Płatności</h3>
+                              <p className="text-emerald-100 text-xs font-black uppercase tracking-widest opacity-80">Symulacja kampanii {selectedYear}</p>
+                          </div>
+                      </div>
+                      <button onClick={() => setShowSubsidyDetails(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all hover:rotate-90 relative z-10">
+                          <X size={24} />
+                      </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-8 space-y-10 bg-slate-50/50">
+                      <section>
+                          <div className="flex items-center gap-3 mb-4">
+                            <CheckCircle size={24} className="text-emerald-600" />
+                            <h4 className="text-xl font-bold text-slate-800">Płatności Bezpośrednie</h4>
+                          </div>
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                              <table className="w-full text-sm text-left">
+                                  <thead className="bg-slate-100 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-black tracking-wider">
+                                      <tr>
+                                          <th className="p-4">Nazwa Płatności</th>
+                                          <th className="p-4 text-right">Stawka</th>
+                                          <th className="p-4 text-right">Powierzchnia</th>
+                                          <th className="p-4 text-right">Suma (PLN)</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                      {basicPaymentsBreakdown.map((item: any, idx: number) => (
+                                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                              <td className="p-4 font-bold text-slate-700">{item.name}</td>
+                                              <td className="p-4 text-right text-slate-500 font-mono">{Number(item.rate).toFixed(2)} {item.unit}</td>
+                                              <td className="p-4 text-right text-slate-500 font-mono">{Number(item.amount).toFixed(2)} ha</td>
+                                              <td className="p-4 text-right font-black text-slate-900">{Number(item.total).toLocaleString('pl-PL', { minimumFractionDigits: 2 })}</td>
+                                          </tr>
+                                      ))}
+                                  </tbody>
+                                  <tfoot className="bg-emerald-50 font-black border-t-2 border-emerald-100">
+                                      <tr>
+                                          <td colSpan={3} className="p-4 text-right text-emerald-800 uppercase text-xs tracking-widest">Suma Płatności Podstawowych:</td>
+                                          <td className="p-4 text-right text-emerald-900 text-lg font-black">{(Number(totalBasicSubsidy) || 0).toLocaleString('pl-PL', { minimumFractionDigits: 2 })} PLN</td>
+                                      </tr>
+                                  </tfoot>
+                              </table>
+                          </div>
+                      </section>
+
+                      <section>
+                          <div className="flex items-center gap-3 mb-4">
+                            <Leaf size={24} className="text-emerald-600" />
+                            <h4 className="text-xl font-bold text-slate-800">Ekoschematy (Zasiewy)</h4>
+                          </div>
+                          {analysisReport.ecoSchemes.length > 0 ? (
+                              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                  <table className="w-full text-sm text-left">
+                                      <thead className="bg-slate-100 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-black tracking-wider">
+                                          <tr>
+                                              <th className="p-4">Kod</th>
+                                              <th className="p-4 text-right">Punkty/ha</th>
+                                              <th className="p-4 text-right">Deklaracja</th>
+                                              <th className="p-4 text-right">Suma (PLN)</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                          {analysisReport.ecoSchemes.map((eco: EcoSchemeCalculation, idx: number) => {
+                                              const pts: number = Number(eco.totalPoints) || 0;
+                                              const ecoArea: number = Number(eco.totalArea) || 0;
+                                              const ecoVal: number = Number(eco.estimatedValue) || 0;
+                                              
+                                              return (
+                                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                                  <td className="p-4">
+                                                      <span className="bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-xs font-black shadow-sm">{eco.schemeCode}</span>
+                                                  </td>
+                                                  <td className="p-4 text-right text-slate-500 font-mono">
+                                                    {(pts > 0 && ecoArea > 0) ? `${(pts / ecoArea).toFixed(1)} pkt` : '-'}
+                                                  </td>
+                                                  <td className="p-4 text-right text-slate-500 font-mono">{ecoArea.toFixed(2)} ha</td>
+                                                  <td className="p-4 text-right font-black text-slate-900">{ecoVal.toLocaleString('pl-PL', { minimumFractionDigits: 2 })}</td>
+                                              </tr>
+                                              );
+                                          })}
+                                      </tbody>
+                                      <tfoot className="bg-emerald-50 font-black border-t-2 border-emerald-100">
+                                          <tr>
+                                              <td colSpan={3} className="p-4 text-right text-emerald-800 uppercase text-xs tracking-widest">Suma Ekoschematów:</td>
+                                              <td className="p-4 text-right text-emerald-900 text-lg font-black">{(Number(analysisReport.totalEstimatedValue) || 0).toLocaleString('pl-PL', { minimumFractionDigits: 2 })} PLN</td>
+                                          </tr>
+                                      </tfoot>
+                                  </table>
+                              </div>
+                          ) : (
+                              <div className="p-10 text-center bg-white border-2 border-dashed border-slate-200 rounded-3xl text-slate-400">
+                                  <div className="mx-auto mb-4 opacity-40">
+                                    <Info size={40} />
+                                  </div>
+                                  <p className="font-medium">Brak przypisanych ekoschematów w kampanii {selectedYear}.</p>
+                              </div>
+                          )}
+                      </section>
+
+                      <div className="p-10 bg-gradient-to-br from-emerald-800 to-teal-900 rounded-[2.5rem] text-white shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8 border-4 border-emerald-600/30 relative overflow-hidden group">
+                          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl group-hover:scale-110 transition-transform duration-700"></div>
+                          <div className="relative z-10">
+                              <p className="text-emerald-300 uppercase tracking-[0.2em] text-[10px] font-black mb-2">Szacowana Wypłata Łączna</p>
+                              <h3 className="text-5xl font-black tracking-tighter">{(Number(grandTotalSubsidy) || 0).toLocaleString('pl-PL', { minimumFractionDigits: 2 })} <span className="text-2xl font-light opacity-60">PLN</span></h3>
+                          </div>
+                          <div className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl border border-white/20 text-center md:text-right relative z-10 shadow-inner">
+                              <p className="text-xs text-emerald-100/70 mb-1 font-bold">Średnia dopłata:</p>
+                              <p className="text-3xl font-black">{(Number(grandTotalSubsidy) / (Number(totalArea) || 1)).toLocaleString('pl-PL', { minimumFractionDigits: 0 })} <span className="text-sm font-medium opacity-60">zł/ha</span></p>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="p-8 border-t border-slate-100 bg-white flex flex-col md:flex-row justify-between items-center gap-4">
+                      <p className="text-[10px] text-slate-400 italic max-w-md text-center md:text-left font-medium uppercase tracking-tighter">
+                        * Wyliczenia oparte na stawkach prognozowanych ARiMR. Kwoty mogą ulec zmianie po ogłoszeniu kursu EUR.
+                      </p>
+                      <button onClick={() => setShowSubsidyDetails(false)} className="w-full md:w-auto bg-slate-900 hover:bg-black text-white px-10 py-3 rounded-2xl font-black transition-all shadow-lg active:scale-95 text-sm uppercase tracking-widest">
+                          Zamknij Panel
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
 
-const StatCard = ({ title, value, subtext, icon: Icon, color }: any) => {
+const StatCard = ({ title, value, subtext, icon: Icon, color, onClick, isInteractive }: any) => {
     const colors: any = {
         blue: 'bg-blue-100 text-blue-600',
         emerald: 'bg-emerald-100 text-emerald-600',
@@ -373,15 +578,26 @@ const StatCard = ({ title, value, subtext, icon: Icon, color }: any) => {
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-3">
-                <span className="text-slate-500 text-sm font-medium">{title}</span>
-                <div className={`p-2 rounded-lg ${colors[color]}`}>
-                    <Icon size={20} />
+        <div 
+            onClick={onClick}
+            className={`bg-white p-6 rounded-xl border border-slate-200 shadow-sm transition-all duration-300 relative group overflow-hidden ${isInteractive ? 'cursor-pointer hover:shadow-xl hover:border-emerald-500 active:scale-[0.98]' : 'hover:shadow-md'}`}
+        >
+            {isInteractive && <div className="absolute top-0 right-0 w-2 h-full bg-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>}
+            <div className="flex items-center justify-between mb-3 relative z-10">
+                <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest group-hover:text-emerald-600 transition-colors">{title}</span>
+                <div className={`p-2 rounded-lg ${colors[color]} group-hover:scale-110 transition-transform duration-300 shadow-sm`}>
+                    <Icon size={18} />
                 </div>
             </div>
-            <div className="text-2xl font-bold text-slate-800 mb-1">{value}</div>
-            <div className="text-xs text-slate-400">{subtext}</div>
+            <div className={`text-xl font-black text-slate-800 mb-1 tracking-tight ${isInteractive ? 'group-hover:text-emerald-700' : ''}`}>{value}</div>
+            <div className="text-[10px] text-slate-400 flex items-center justify-between relative z-10 font-bold">
+                <span>{subtext}</span>
+                {isInteractive && (
+                    <div className="bg-emerald-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all shadow-md">
+                        <ArrowUpRight size={12} />
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
