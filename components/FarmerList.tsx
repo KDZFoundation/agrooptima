@@ -78,8 +78,8 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
         }
     }
 
-    // VALIDATION: Sanitize Area
-    const safeArea = (formData.totalArea && !isNaN(Number(formData.totalArea))) ? Number(formData.totalArea) : 0;
+    // VALIDATION: Sanitize Area (prevent NaN or null sending to API which expects float)
+    const safeArea = (formData.totalArea && !isNaN(formData.totalArea)) ? formData.totalArea : 0;
 
     // Auto-generate farm name display
     const farmNameDisplay = `${formData.lastName} ${formData.firstName} Farm`;
@@ -179,7 +179,7 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                     {client.producerId}
                 </td>
                 <td className="p-4 text-slate-600 text-sm">
-                   {Number(client.totalArea).toFixed(2)} ha
+                   {client.totalArea.toFixed(2)} ha
                 </td>
                 <td className="p-4">
                    {getStatusBadge(client.status)}
@@ -266,7 +266,7 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                             maxLength={9}
                             minLength={9}
                             pattern="\d{9}"
-                            disabled={!!editingClient}
+                            disabled={!!editingClient} // Cannot change ID once created
                             value={formData.producerId}
                             onChange={(e) => {
                                 setFormData({...formData, producerId: e.target.value.replace(/\D/g,'')});
@@ -295,7 +295,8 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                                 min="0"
                                 value={formData.totalArea}
                                 onChange={(e) => {
-                                    setFormData({...formData, totalArea: e.target.value as any});
+                                    const val = parseFloat(e.target.value);
+                                    setFormData({...formData, totalArea: isNaN(val) ? 0 : val});
                                 }}
                                 className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                             />
