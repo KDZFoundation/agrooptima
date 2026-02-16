@@ -15,8 +15,7 @@ import AdminPanel from './components/AdminPanel';
 import FarmPlanner from './components/FarmPlanner';
 import EcoSimulation from './components/EcoSimulation';
 import FarmerApplication from './components/FarmerApplication';
-import OperationsLog from './components/OperationsLog';
-import { ViewState, FarmData, FarmerClient, Field, FarmerDocument, CsvTemplate, UserRole, FarmTask, User, FieldOperation } from './types';
+import { ViewState, FarmData, FarmerClient, Field, FarmerDocument, CsvTemplate, UserRole, FarmTask, User } from './types';
 import { DEFAULT_CSV_TEMPLATES, MOCK_TASKS } from './constants';
 import { api } from './services/api';
 import { WifiOff, LogOut, Loader2 } from 'lucide-react';
@@ -42,8 +41,8 @@ const App: React.FC = () => {
   });
 
   const [tasks, setTasks] = useState<FarmTask[]>(MOCK_TASKS);
-  const [operations, setOperations] = useState<FieldOperation[]>([]);
 
+  // Auth Initialization
   useEffect(() => {
     const token = localStorage.getItem('ao_token');
     const savedUser = localStorage.getItem('ao_user');
@@ -77,7 +76,6 @@ const App: React.FC = () => {
     if (!clientId) return;
     try {
         const apiFields = await api.getClientFields(clientId);
-        const apiOps = await api.getOperations(clientId);
         const calculatedArea = calculateUniqueArea(apiFields, selectedYear);
         const client = clients.find(c => c.producerId === clientId);
 
@@ -90,9 +88,8 @@ const App: React.FC = () => {
             },
             fields: apiFields
         });
-        setOperations(apiOps);
     } catch (e) {
-        console.error("Failed to load client data");
+        console.error("Failed to load client fields");
     }
   }, [clients, selectedYear, calculateUniqueArea]);
 
@@ -102,27 +99,24 @@ const App: React.FC = () => {
       }
   }, [selectedClientId, selectedYear, isLoggedIn, loadFarmDataForClient]);
 
-  const fetchClients = useCallback(async () => {
-    const cls = await api.getClients();
-    if (cls) {
-        setClients(cls);
-        if (currentUser?.role === 'FARMER' && !selectedClientId && cls.length > 0) {
-            setSelectedClientId(cls[0].producerId);
-        }
-    }
-  }, [currentUser?.role, selectedClientId]);
-
   useEffect(() => {
     const initData = async () => {
         const online = await api.checkConnection();
         setIsOffline(!online);
         
         if (isLoggedIn) {
-            fetchClients();
+            const [tpls, cls] = await Promise.all([api.getTemplates(), api.getClients()]);
+            if (tpls && tpls.length > 0) setCsvTemplates(prev => [...prev.filter(t => !t.id.startsWith('default')), ...tpls]);
+            if (cls) {
+                setClients(cls);
+                if (currentUser?.role === 'FARMER' && !selectedClientId && cls.length > 0) {
+                    setSelectedClientId(cls[0].producerId);
+                }
+            }
         }
     };
     initData();
-  }, [isLoggedIn, fetchClients]);
+  }, [isLoggedIn, currentUser?.role, selectedClientId]);
 
   const handleAuth = (token: string, user: User) => {
     localStorage.setItem('ao_token', token);
@@ -150,52 +144,57 @@ const App: React.FC = () => {
     setCurrentView('DASHBOARD');
   };
 
-  // HANDLERY DLA FARMER_LIST
   const handleAddClient = async (client: FarmerClient) => {
-    const saved = await api.createOrUpdateClient(client);
-    if (saved) {
-      await fetchClients();
-    }
+      await api.createOrUpdateClient(client);
+      setClients(await api.getClients());
   };
 
   const handleUpdateClient = async (client: FarmerClient) => {
-    const saved = await api.createOrUpdateClient(client);
-    if (saved) {
-      await fetchClients();
-    }
+      await api.createOrUpdateClient(client);
+      setClients(await api.getClients());
   };
 
   const handleDeleteClient = async (id: string) => {
-    if (window.confirm("Czy na pewno chcesz usunąć tego rolnika z bazy?")) {
-      const ok = await api.deleteClient(id);
-      if (ok) {
-        await fetchClients();
-        if (selectedClientId === id) {
-          setSelectedClientId(null);
-        }
+      if(window.confirm("Czy na pewno chcesz usunąć tego rolnika?")) {
+        await api.deleteClient(id);
+        setClients(await api.getClients());
+        if (selectedClientId === id) setSelectedClientId(null);
       }
-    }
   };
 
-  const handleAddDocument = async (doc: FarmerDocument): Promise<void> => {
+  const updateFields = (newFieldsInput: any) => { 
+     setFarmData(prev => {
+        const updatedFields = typeof newFieldsInput === 'function' ? newFieldsInput(prev.fields) : newFieldsInput;
+        const calculatedArea = calculateUniqueArea(updatedFields, selectedYear);
+
+        return { 
+            ...prev, 
+            fields: updatedFields,
+            profile: {
+                ...prev.profile,
+                totalAreaUR: calculatedArea,
+                entryConditionPoints: parseFloat((calculatedArea * 0.25 * 5).toFixed(2))
+            }
+        };
+     });
+  };
+
+  const handleSaveFields = async (currentFields: Field[]) => {
+      const pid = selectedClientId || farmData.profile.producerId;
+      if (!pid) return false;
+      try {
+          await api.saveClientFields(pid, currentFields);
+          return true;
+      } catch (e) {
+          return false;
+      }
+  };
+
+  const handleAddDocument = async (doc: FarmerDocument) => {
     const clientId = selectedClientId || farmData.profile.producerId;
     if (!clientId) return;
-
-    setClients(prevClients => prevClients.map(client => {
-        if (client.producerId === clientId) {
-            return {
-                ...client,
-                documents: [...(client.documents || []), doc]
-            };
-        }
-        return client;
-    }));
-
-    try {
-        await api.addDocument(clientId, doc);
-    } catch (e) {
-        console.error("Failed to persist document", e);
-    }
+    await api.addDocument(clientId, doc);
+    setClients(await api.getClients());
   };
 
   const handleRemoveDocument = async (id: string) => {
@@ -205,57 +204,11 @@ const App: React.FC = () => {
     setClients(await api.getClients());
   };
 
-  const handleAddOperation = async (op: FieldOperation) => {
-      const clientId = selectedClientId || farmData.profile.producerId;
-      if (!clientId) return;
-      
-      setOperations(prev => [...prev, op]);
-      try {
-          await api.saveOperation(clientId, op);
-      } catch (e) {
-          console.error("Offline operation save");
-      }
-  };
-
-  const handleDeleteOperation = async (id: string) => {
-      const clientId = selectedClientId || farmData.profile.producerId;
-      if (!clientId) return;
-      
-      setOperations(prev => prev.filter(op => op.id !== id));
-      try {
-          await api.deleteOperation(clientId, id);
-      } catch (e) {
-          console.error("Offline operation delete");
-      }
-  };
-
-  const handleSaveFields = async (updatedFields: Field[]) => {
-    const clientId = selectedClientId || farmData.profile.producerId;
-    if (!clientId) return false;
-
-    try {
-        await api.saveClientFields(clientId, updatedFields);
-        const calculatedArea = calculateUniqueArea(updatedFields, selectedYear);
-        setFarmData(prev => ({
-            ...prev,
-            profile: {
-                ...prev.profile,
-                totalAreaUR: calculatedArea
-            },
-            fields: updatedFields
-        }));
-        return true;
-    } catch (e) {
-        console.error("Save fields failed", e);
-        return false;
-    }
-  };
-
   if (isAppLoading) {
       return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
               <Loader2 className="animate-spin text-emerald-600 mb-4" size={48} />
-              <p className="text-slate-500 font-black uppercase tracking-widest text-xs">AgroOptima Core v3.1</p>
+              <p className="text-slate-500 font-bold">Ładowanie AgroOptima...</p>
           </div>
       );
   }
@@ -281,38 +234,27 @@ const App: React.FC = () => {
             <FarmerDashboard farmData={farmData} onNavigate={setCurrentView} />
         );
       case 'FARMERS_LIST':
-        return <FarmerList 
-                  clients={clients} 
-                  onSelectClient={handleSelectClient} 
-                  onAddClient={handleAddClient} 
-                  onUpdateClient={handleUpdateClient} 
-                  onDeleteClient={handleDeleteClient} 
-                />;
+        return <FarmerList clients={clients} onSelectClient={handleSelectClient} onAddClient={handleAddClient} onUpdateClient={handleUpdateClient} onDeleteClient={handleDeleteClient} />;
       case 'FIELDS':
         return (
             <FieldManager 
                 fields={farmData.fields} 
-                setFields={(updater) => {
-                    const newFields = typeof updater === 'function' ? updater(farmData.fields) : updater;
-                    setFarmData(prev => ({ ...prev, fields: newFields }));
-                }} 
+                setFields={updateFields} 
                 csvTemplates={csvTemplates} 
                 initialTab={fieldManagerTab} 
                 selectedYear={selectedYear}
                 setSelectedYear={setSelectedYear}
-                onSave={handleSaveFields}
+                onSave={handleSaveFields} 
             />
         );
       case 'SIMULATION':
-        return <EcoSimulation farmData={farmData} selectedYear={selectedYear} onApplyPlan={() => {}} />;
+        return <EcoSimulation farmData={farmData} selectedYear={selectedYear} onApplyPlan={(fields) => { updateFields(fields); handleSaveFields(fields); setCurrentView('DASHBOARD'); }} />;
       case 'FARMER_APPLICATION':
         return <FarmerApplication farmData={farmData} />;
-      case 'OPERATIONS_LOG':
-        return <OperationsLog operations={operations} fields={farmData.fields} onAddOperation={handleAddOperation} onDeleteOperation={handleDeleteOperation} isAdvisor={currentUser?.role === 'ADVISOR'} />;
       case 'CHAT': return <AIChat farmData={farmData} />;
       case 'DOCUMENTS': return <DocumentManager documents={currentClient?.documents || []} onAddDocument={handleAddDocument} onRemoveDocument={handleRemoveDocument} />;
       case 'OPTIMIZATION': return <Optimizer farmData={farmData} />;
-      case 'ADMIN': return <AdminPanel clients={clients} templates={csvTemplates} onSaveTemplate={() => {}} onDeleteTemplate={() => {}} selectedGlobalYear={selectedYear} />;
+      case 'ADMIN': return <AdminPanel clients={clients} templates={csvTemplates} onSaveTemplate={(t) => setCsvTemplates(p => [...p.filter(x => x.id !== t.id), t])} onDeleteTemplate={(id) => setCsvTemplates(p => p.filter(x => x.id !== id))} selectedGlobalYear={selectedYear} />;
       case 'CALENDAR': return <FarmPlanner tasks={tasks} fields={farmData.fields} setTasks={setTasks} isAdvisor={currentUser?.role === 'ADVISOR'} />;
       default: return null;
     }
@@ -324,21 +266,14 @@ const App: React.FC = () => {
       <div className={`flex-1 ${currentUser?.role === 'ADVISOR' ? 'md:ml-64' : ''} relative w-full pb-16 md:pb-0`}>
         <div className="md:hidden">
             <MobileHeader toggleSidebar={() => currentUser?.role === 'ADVISOR' && setSidebarOpen(!sidebarOpen)} />
+            {currentUser?.role === 'FARMER' && <div className="absolute top-4 right-4 z-50"><button onClick={handleLogout} className="text-slate-500 hover:text-red-500"><LogOut size={20}/></button></div>}
         </div>
-        {isOffline && <div className="bg-red-500 text-white px-4 py-2 text-[10px] font-black uppercase tracking-widest text-center flex items-center justify-center gap-2"><WifiOff size={14} /><span>Tryb Pracy Lokalnej - Brak połączenia z chmurą</span></div>}
-        <main className={`p-4 ${currentUser?.role === 'ADVISOR' ? 'md:p-8' : ''} max-w-7xl mx-auto`}>
+        {isOffline && <div className="bg-red-500 text-white px-4 py-2 text-sm text-center font-medium flex items-center justify-center gap-2"><WifiOff size={16} /><span>Tryb Offline - Dane w przeglądarce</span></div>}
+        <main className={`p-4 ${currentUser?.role === 'ADVISOR' ? 'md:p-8' : 'md:max-w-md md:mx-auto md:bg-white md:shadow-xl md:min-h-screen md:border-x md:border-slate-100'} max-w-7xl mx-auto`}>
           {currentUser?.role === 'ADVISOR' && selectedClientId && (
-              <div className="mb-6 bg-slate-900 text-white px-5 py-3 rounded-2xl flex justify-between items-center text-sm shadow-xl border border-slate-800">
-                 <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-black">
-                        {farmData.farmName.charAt(0)}
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none">Aktywny Klient</span>
-                        <span className="font-black truncate text-emerald-400">{farmData.farmName}</span>
-                    </div>
-                 </div>
-                 <button onClick={() => setCurrentView('FARMERS_LIST')} className="bg-white/10 hover:bg-white/20 text-white px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Zmień</button>
+              <div className="mb-6 bg-slate-800 text-white px-4 py-2 rounded-lg flex justify-between items-center text-sm shadow-md">
+                 <div className="flex items-center gap-2 overflow-hidden"><span className="text-slate-400 hidden sm:inline">Klient:</span><span className="font-semibold truncate">{farmData.farmName}</span></div>
+                 <button onClick={() => setCurrentView('FARMERS_LIST')} className="text-emerald-400 hover:text-emerald-300 font-medium whitespace-nowrap ml-2">Zmień</button>
               </div>
           )}
           {renderContent()}
