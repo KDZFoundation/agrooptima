@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Sparkles, Database, X, Loader2 } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Database, Loader2 } from 'lucide-react';
 import { chatWithAdvisor } from '../services/geminiService';
 import { FarmData } from '../types';
 
@@ -8,10 +7,12 @@ interface AIChatProps {
   farmData: FarmData;
 }
 
+// Powitanie statyczne - NIE trafia do historii API Gemini
+const GREETING = `Dzień dobry! Jestem Twoim asystentem AgroOptima. W czym mogę Ci dzisiaj pomóc?`;
+
 const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
-  const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([
-    { role: 'model', text: `Dzień dobry! Jestem Twoim asystentem AgroOptima. W czym mogę Ci dzisiaj pomóc?` }
-  ]);
+  // Historia zawiera TYLKO wiadomości user/model — bez powitania
+  const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -26,14 +27,22 @@ const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
 
   const handleSend = async () => {
     if (!input.trim()) return;
-    
+
     const userMsg = input;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+
+    // Dodaj wiadomość użytkownika do historii
+    const updatedMessages = [...messages, { role: 'user' as const, text: userMsg }];
+    setMessages(updatedMessages);
     setLoading(true);
 
     try {
-      const result = await chatWithAdvisor(messages.map(m => ({role: m.role as any, text: m.text})), userMsg, farmData);
+      // Przekaż historię BEZ ostatniej wiadomości (API dostaje ją osobno jako `message`)
+      const historyForApi = updatedMessages
+        .slice(0, -1)
+        .map(m => ({ role: m.role as any, text: m.text }));
+
+      const result = await chatWithAdvisor(historyForApi, userMsg, farmData);
       setMessages(prev => [...prev, { role: 'model', text: result.answer }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: 'model', text: "Przepraszam, wystąpił błąd podczas generowania odpowiedzi." }]);
@@ -67,8 +76,24 @@ const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
               </div>
            )}
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/20">
+
+          {/* === POWITANIE STATYCZNE — nie trafia do API === */}
+          <div className="flex justify-start">
+            <div className="flex max-w-[90%] sm:max-w-[80%] gap-4 flex-row">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm bg-emerald-600 text-white">
+                <Bot size={20} />
+              </div>
+              <div className="p-5 rounded-3xl text-sm leading-relaxed shadow-sm bg-white text-slate-800 border border-slate-100 rounded-tl-none">
+                <div className="prose prose-slate max-w-none whitespace-pre-wrap">
+                  {GREETING}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* === HISTORIA ROZMOWY === */}
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`flex max-w-[90%] sm:max-w-[80%] gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -76,8 +101,8 @@ const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
                   {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
                 </div>
                 <div className={`p-5 rounded-3xl text-sm leading-relaxed shadow-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-slate-900 text-white rounded-tr-none' 
+                  msg.role === 'user'
+                    ? 'bg-slate-900 text-white rounded-tr-none'
                     : 'bg-white text-slate-800 border border-slate-100 rounded-tl-none'
                 }`}>
                   <div className="prose prose-slate max-w-none whitespace-pre-wrap">
@@ -87,6 +112,7 @@ const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
               </div>
             </div>
           ))}
+
           {loading && (
             <div className="flex justify-start items-center gap-4">
                <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center animate-pulse">
@@ -103,15 +129,15 @@ const AIChat: React.FC<AIChatProps> = ({ farmData }) => {
 
         <div className="p-6 bg-white border-t border-slate-100">
           <div className="relative flex items-center max-w-3xl mx-auto">
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Zadaj pytanie asystentowi..."
               className="w-full pl-6 pr-16 py-4.5 bg-slate-50 border border-slate-200 rounded-3xl focus:ring-2 focus:ring-emerald-500 focus:outline-none focus:bg-white transition-all font-medium text-slate-800 shadow-inner"
             />
-            <button 
+            <button
               onClick={handleSend}
               disabled={loading || !input.trim()}
               className="absolute right-2.5 p-3.5 bg-emerald-600 text-white rounded-2xl hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-lg active:scale-95"

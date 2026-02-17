@@ -28,7 +28,7 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
   });
   
   // Validation State
-  const [errors, setErrors] = useState<{ producerId?: string }>({});
+  const [errors, setErrors] = useState<{ firstName?: string; lastName?: string; producerId?: string; totalArea?: string }>({});
 
   const filteredClients = clients.filter(client => {
       const full = `${client.firstName} ${client.lastName}`.toLowerCase();
@@ -60,23 +60,46 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
     setIsModalOpen(true);
   };
 
+  const validateForm = () => {
+      const newErrors: typeof errors = {};
+      let isValid = true;
+
+      if (!formData.firstName?.trim()) {
+          newErrors.firstName = "Imię jest wymagane.";
+          isValid = false;
+      }
+
+      if (!formData.lastName?.trim()) {
+          newErrors.lastName = "Nazwisko jest wymagane.";
+          isValid = false;
+      }
+
+      // VALIDATION: Ensure Producer ID is valid (API requires 9 chars)
+      if (!formData.producerId || !/^\d{9}$/.test(formData.producerId)) {
+          newErrors.producerId = "Numer EP musi składać się z dokładnie 9 cyfr.";
+          isValid = false;
+      } else if (!editingClient) {
+          // Check if ID is unique (only for new clients)
+          const exists = clients.some(c => c.producerId === formData.producerId);
+          if (exists) {
+              newErrors.producerId = "Ten numer EP już istnieje w bazie.";
+              isValid = false;
+          }
+      }
+
+      if (formData.totalArea === undefined || formData.totalArea < 0) {
+          newErrors.totalArea = "Powierzchnia nie może być ujemna.";
+          isValid = false;
+      }
+
+      setErrors(newErrors);
+      return isValid;
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // VALIDATION: Ensure Producer ID is valid (API requires 9 chars)
-    if (!formData.producerId || formData.producerId.length !== 9) {
-        setErrors({ producerId: "Numer EP musi składać się z dokładnie 9 cyfr." });
-        return;
-    }
-
-    // Check if ID is unique (only for new clients)
-    if (!editingClient) {
-        const exists = clients.some(c => c.producerId === formData.producerId);
-        if (exists) {
-            setErrors({ producerId: "Ten numer EP już istnieje w bazie." });
-            return;
-        }
-    }
+    if (!validateForm()) return;
 
     // VALIDATION: Sanitize Area
     const safeArea = (formData.totalArea && !isNaN(Number(formData.totalArea))) ? Number(formData.totalArea) : 0;
@@ -238,23 +261,29 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                             <label className="block text-sm font-medium text-slate-700 mb-1">Imię</label>
                             <input 
                                 type="text" 
-                                required
                                 value={formData.firstName}
-                                onChange={(e) => setFormData({...formData, firstName: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                onChange={(e) => {
+                                    setFormData({...formData, firstName: e.target.value});
+                                    if(errors.firstName) setErrors({...errors, firstName: undefined});
+                                }}
+                                className={`w-full border rounded-lg p-2.5 focus:outline-none focus:ring-2 ${errors.firstName ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-emerald-500'}`}
                                 placeholder="Jan"
                             />
+                            {errors.firstName && <p className="text-xs text-red-500 mt-1">{errors.firstName}</p>}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Nazwisko</label>
                             <input 
                                 type="text" 
-                                required
                                 value={formData.lastName}
-                                onChange={(e) => setFormData({...formData, lastName: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                onChange={(e) => {
+                                    setFormData({...formData, lastName: e.target.value});
+                                    if(errors.lastName) setErrors({...errors, lastName: undefined});
+                                }}
+                                className={`w-full border rounded-lg p-2.5 focus:outline-none focus:ring-2 ${errors.lastName ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-emerald-500'}`}
                                 placeholder="Kowalski"
                             />
+                            {errors.lastName && <p className="text-xs text-red-500 mt-1">{errors.lastName}</p>}
                         </div>
                     </div>
                     
@@ -262,10 +291,7 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                         <label className="block text-sm font-medium text-slate-700 mb-1">Numer EP (9 cyfr)</label>
                         <input 
                             type="text" 
-                            required
                             maxLength={9}
-                            minLength={9}
-                            pattern="\d{9}"
                             disabled={!!editingClient}
                             value={formData.producerId}
                             onChange={(e) => {
@@ -296,9 +322,11 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                                 value={formData.totalArea}
                                 onChange={(e) => {
                                     setFormData({...formData, totalArea: e.target.value as any});
+                                    if(errors.totalArea) setErrors({...errors, totalArea: undefined});
                                 }}
-                                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                className={`w-full border rounded-lg p-2.5 focus:outline-none focus:ring-2 ${errors.totalArea ? 'border-red-500 focus:ring-red-500' : 'border-slate-300 focus:ring-emerald-500'}`}
                             />
+                            {errors.totalArea && <p className="text-xs text-red-500 mt-1">{errors.totalArea}</p>}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>

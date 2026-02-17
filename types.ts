@@ -1,4 +1,5 @@
 
+
 export type CropType = 'Pszenica' | 'Rzepak' | 'Kukurydza' | 'Burak Cukrowy' | 'Jęczmień' | 'Żyto' | 'Ziemniaki' | 'Trawy' | 'Rośliny Bobowate' | 'Mieszanka' | 'Nieznana' | string;
 
 export type UserRole = 'ADVISOR' | 'FARMER';
@@ -8,23 +9,6 @@ export interface User {
     email: string;
     fullName: string;
     role: UserRole;
-}
-
-export type OperationType = 'NAWOZENIE' | 'OPRYSK' | 'SIEW' | 'UPRAWA' | 'ZBIOR' | 'INNE';
-
-export interface FieldOperation {
-    id: string;
-    fieldId: string;
-    fieldName: string;
-    date: string;
-    type: OperationType;
-    productName: string;
-    dosage: string;
-    unit: string;
-    operatorName?: string;
-    photoUrl?: string;
-    isEcoSchemeRelevant: boolean;
-    linkedEcoScheme?: string;
 }
 
 export interface FarmerApplicationData {
@@ -77,7 +61,7 @@ export interface AuthResponse {
     token: string;
     user: User;
 }
-
+// ... reszta istniejących typów ...
 export interface KnowledgeChunk {
     id: string;
     documentId: string;
@@ -144,100 +128,100 @@ export interface FieldCropPart {
     crop: string;
     area: number;
     ecoSchemes: string[];
-    designationZal?: string; 
+    designationZal?: string;
     paymentList?: string;
     plantMix?: string;
 }
 
 export interface FieldHistoryEntry {
-  year: number;
-  crop: string;
-  appliedEcoSchemes: string[];
-  area?: number; 
-  eligibleArea?: number;
-  cropParts?: FieldCropPart[];
-  limingDate?: string;
-  soilPh?: number;
-  designation?: string;
+    year: number;
+    crop: string;
+    appliedEcoSchemes: string[];
+    area?: number;
+    eligibleArea?: number;
+    cropParts?: FieldCropPart[];
+    limingDate?: string;
+    soilPh?: number;
+    designation?: string;
 }
 
 export interface FarmProfile {
-  producerId: string;
-  totalAreaUR: number;
-  entryConditionPoints: number;
+    producerId: string;
+    totalAreaUR: number;
+    entryConditionPoints: number;
 }
 
 export interface Field {
-  id: string;
-  name: string;
-  registrationNumber?: string;
-  area: number;
-  eligibleArea: number;
-  crop: CropType;
-  history: FieldHistoryEntry[];
-  voivodeship?: string;
-  district?: string;
-  commune?: string;
-  precinctName?: string;
-  precinctNumber?: string;
-  mapSheet?: string;
+    id: string;
+    name: string;
+    registrationNumber?: string;
+    area: number;
+    eligibleArea: number;
+    crop: CropType;
+    history: FieldHistoryEntry[];
+    voivodeship?: string;
+    district?: string;
+    commune?: string;
+    precinctName?: string;
+    precinctNumber?: string;
+    mapSheet?: string;
 }
 
 export interface FarmData {
-  farmName: string;
-  profile: FarmProfile;
-  fields: Field[];
+    farmName: string;
+    profile: FarmProfile;
+    fields: Field[];
 }
 
 export interface FarmerDocument {
-  id: string;
-  name: string;
-  type: 'PDF' | 'CSV' | 'GML' | 'SHP' | 'OTHER';
-  category: 'WNIOSEK' | 'MAPA' | 'REJESTR' | 'INNE'; 
-  campaignYear: string;
-  size: string;
-  uploadDate: string;
-  extractedText?: string;
+    id: string;
+    name: string;
+    type: 'PDF' | 'CSV' | 'GML' | 'SHP' | 'OTHER';
+    category: 'WNIOSEK' | 'MAPA' | 'REJESTR' | 'INNE';
+    campaignYear: string;
+    size: string;
+    uploadDate: string;
+    extractedText?: string;
 }
 
 export interface FarmerClient {
-  producerId: string;
-  advisorId?: number;
-  firstName: string;
-  lastName: string;
-  farmName: string; 
-  totalArea: number;
-  status: 'ACTIVE' | 'PENDING' | 'COMPLETED';
-  lastContact: string;
-  documents: FarmerDocument[];
+    producerId: string;
+    advisorId?: number;
+    firstName: string;
+    lastName: string;
+    farmName: string;
+    totalArea: number;
+    status: 'ACTIVE' | 'PENDING' | 'COMPLETED';
+    lastContact: string;
+    documents: FarmerDocument[];
 }
 
 export interface SubsidyRate {
-  id: string;
-  name: string;
-  rate: number;
-  unit: 'PLN/ha' | 'PLN/DJP' | 'PLN/pkt' | 'PLN/szt.' | 'PLN/kg' | 'EUR/ha';
-  category: 'EKOSCHEMAT' | 'DOPLATA' | 'DOBROSTAN';
-  year: number;
-  shortName?: string;
-  points?: number;
-  combinableWith?: string;
-  conflictsWith?: string[];
-  description?: string;
+    id: string;
+    name: string;
+    rate: number;
+    unit: 'PLN/ha' | 'PLN/DJP' | 'PLN/pkt' | 'PLN/szt.' | 'PLN/kg' | 'EUR/ha';
+    category: 'EKOSCHEMAT' | 'DOPLATA' | 'DOBROSTAN';
+    year: number;
+    shortName?: string;
+    points?: number;
+    combinableWith?: string;
+    conflictsWith?: string[];
+    description?: string;
 }
 
 export interface OptimizationResult {
-  totalEstimatedSubsidy: number;
-  recommendations: OptimizationRecommendation[];
-  complianceNotes: string;
+    totalEstimatedSubsidy: number;
+    recommendations: OptimizationRecommendation[];
+    complianceNotes: string;
 }
 
 export interface OptimizationRecommendation {
-  fieldId: string;
-  fieldName: string;
-  suggestedEcoSchemes: string[];
-  reasoning: string;
-  potentialGain: number;
+    fieldId: string;
+    fieldName: string;
+    suggestedEcoSchemes: string[];
+    reasoning: string;
+    potentialGain: number;
 }
 
 export interface FarmAnalysisReport {
@@ -281,8 +265,30 @@ export interface CsvTemplate {
     name: string;
     type: CsvTemplateType;
     year: number;
-    mappings: Record<string, string>; 
+    mappings: Record<string, string>;
     separator: string;
 }
 
 export type ViewState = 'DASHBOARD' | 'FIELDS' | 'DOCUMENTS' | 'OPTIMIZATION' | 'CHAT' | 'CALENDAR' | 'FARMERS_LIST' | 'ADMIN' | 'SIMULATION' | 'HIERARCHY' | 'SEMANTIC_EXPLORER' | 'FARMER_APPLICATION' | 'OPERATIONS_LOG';
+
+export type OperationType = 'NAWOZENIE' | 'OPRYSK' | 'SIEW' | 'UPRAWA' | 'ZBIOR' | 'INNE';
+
+export interface FieldOperation {
+    id: string;
+    fieldId: string;
+    fieldName: string;
+    date: string;
+    type: OperationType;
+    productName: string;
+    dosage: string;
+    unit: string;
+    isEcoSchemeRelevant: boolean;
+    linkedEcoScheme?: string;
+    description?: string;
+}
+
+export const getCampaignStatus = (year: number): { label: string; color: string; type: 'COMPLETED' | 'ACTIVE' | 'DRAFT' } => {
+    if (year <= 2024) return { label: 'Zakończona', color: 'text-slate-500 bg-slate-100 border-slate-200', type: 'COMPLETED' };
+    if (year === 2025) return { label: 'W trakcie', color: 'text-blue-600 bg-blue-50 border-blue-200', type: 'ACTIVE' };
+    return { label: 'Robocza', color: 'text-purple-600 bg-purple-50 border-purple-200', type: 'DRAFT' };
+};

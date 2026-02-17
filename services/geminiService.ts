@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { FarmData, OptimizationResult, SemanticQueryResult, FarmerApplicationData, FieldOperation } from "../types";
 
@@ -28,7 +27,7 @@ export const extractRawText = async (base64Data: string, mimeType: string): Prom
 };
 
 /**
- * Funkcja do inteligentnego parsowania notatek rolnika na ustrukturyzowane zabiegi.
+ * Inteligentne parsowanie notatek rolnika na zabiegi agrotechniczne.
  */
 export const parseOperationNote = async (note: string, fieldNames: string[]): Promise<Partial<FieldOperation>> => {
     const model = "gemini-3-flash-preview";
@@ -68,7 +67,7 @@ export const getFarmOptimization = async (farmData: FarmData): Promise<Optimizat
         const response = await ai.models.generateContent({
             model,
             contents: prompt,
-            config: { 
+            config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
@@ -99,15 +98,18 @@ export const getFarmOptimization = async (farmData: FarmData): Promise<Optimizat
 };
 
 /**
- * Czat doradcy - bez RAG.
+ * Czat doradcy.
  */
 export const chatWithAdvisor = async (history: any[], message: string, farmData: FarmData): Promise<SemanticQueryResult> => {
     const model = "gemini-3-flash-preview";
-    const systemInstruction = `Jesteś doradcą AgroOptima. Pomagasz rolnikowi (ID: ${farmData.profile.producerId}) w dopłatach.`;
+    const systemInstruction = `Jesteś doradcą AgroOptima. Pomagasz rolnikowi (ID: ${farmData.profile.producerId}) w dopłatach bezpośrednich WPR 2023-2027.`;
     try {
         const response = await ai.models.generateContent({
             model,
-            contents: [...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })), { role: 'user', parts: [{ text: message }] }],
+            contents: [
+                ...history.map(h => ({ role: h.role, parts: [{ text: h.text }] })),
+                { role: 'user', parts: [{ text: message }] }
+            ],
             config: { systemInstruction }
         });
         return { answer: response.text || "", citations: [] };
@@ -131,6 +133,81 @@ export const analyzeAgroWeather = async (weatherData: any, location: string, cro
     }
 };
 
+/**
+ * Autouzupełnienie wniosku na podstawie danych gospodarstwa — NAPRAWIONE.
+ * Poprzednia wersja zawsze zwracała {}.
+ */
 export const autofillApplicationFromRag = async (farmData: FarmData): Promise<Partial<FarmerApplicationData>> => {
-    return {};
+    const model = "gemini-3-flash-preview";
+
+    // Budujemy minimalny payload — tylko niezbędne dane (bez zbędnych pól)
+    const payload = {
+        fields: farmData.fields.map(f => ({
+            crop: f.crop,
+            area: f.area,
+            ecoSchemes: f.history?.[0]?.appliedEcoSchemes || []
+        })),
+        totalArea: farmData.profile.totalAreaUR
+    };
+
+    const prompt = `
+Jesteś ekspertem dopłat bezpośrednich ARiMR w Polsce (WPR 2023-2027).
+Na podstawie poniższych danych gospodarstwa rolnego ustal, które pola wniosku należy zaznaczyć.
+
+Dane gospodarstwa:
+${JSON.stringify(payload, null, 2)}
+
+Zasady:
+- Jeśli jest jakakolwiek uprawa i ekoschematy → ekoschematy: true
+- Jeśli powierzchnia całkowita > 0 → pwd_red: true (płatność podstawowa)
+- Jeśli uprawy to rośliny bobowate lub trawy → bou: true
+- Jeśli kody ekoschematów zawierają "RETENCJA" lub "E_RET" → retencjonowanie: true
+- Jeśli kody zawierają "GWP" → gwp: true
+- Jeśli kody zawierają "IPR" lub "E_IPR" → ipr: true
+- onw: false (brak danych terytorialnych)
+
+Zwróć TYLKO JSON bez żadnych komentarzy.
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        directPayments: {
+                            type: Type.OBJECT,
+                            properties: {
+                                ekoschematy: { type: Type.BOOLEAN },
+                                pwd_red:     { type: Type.BOOLEAN },
+                                mro:         { type: Type.BOOLEAN },
+                                ipr:         { type: Type.BOOLEAN },
+                                bou:         { type: Type.BOOLEAN },
+                                retencjonowanie: { type: Type.BOOLEAN },
+                                gwp:         { type: Type.BOOLEAN },
+                            }
+                        },
+                        ruralDevelopment: {
+                            type: Type.OBJECT,
+                            properties: {
+                                onw:      { type: Type.BOOLEAN },
+                                zrsk2327: { type: Type.BOOLEAN },
+                                re2327:   { type: Type.BOOLEAN },
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const parsed = JSON.parse(response.text || "{}");
+        console.log("[autofill] Wygenerowano autouzupełnienie wniosku:", parsed);
+        return parsed;
+    } catch (e) {
+        console.warn("[autofill] Nie udało się wygenerować autouzupełnienia:", e);
+        return {};
+    }
 };

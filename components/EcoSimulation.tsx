@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Calculator, Save, Info, CheckCircle, AlertTriangle, Wallet, Leaf, RefreshCw, Layers, ArrowRight, AlertCircle, XCircle } from 'lucide-react';
-import { FarmData, Field, SubsidyRate, EcoSchemeCalculation } from '../types';
+import { FarmData, Field, SubsidyRate, EcoSchemeCalculation, getCampaignStatus } from '../types';
 import { SUBSIDY_RATES_2024, SUBSIDY_RATES_2025, SUBSIDY_RATES_2026 } from '../constants';
 
 interface EcoSimulationProps {
@@ -38,8 +38,8 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
             const hist = field.history.find(h => h.year === selectedYear);
             if (!hist) return;
 
-            const parts = (hist.cropParts && hist.cropParts.length > 0) 
-                ? hist.cropParts 
+            const parts = (hist.cropParts && hist.cropParts.length > 0)
+                ? hist.cropParts
                 : [{ area: hist.area || field.area, ecoSchemes: hist.appliedEcoSchemes, designation: 'A', crop: hist.crop }];
 
             parts.forEach(part => {
@@ -64,10 +64,10 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                     if (!rate) return;
 
                     if (!schemeCalc[code]) schemeCalc[code] = { area: 0, value: 0, points: 0 };
-                    
+
                     const area = part.area;
                     schemeCalc[code].area += area;
-                    
+
                     if (rate.points) {
                         const pts = area * rate.points;
                         schemeCalc[code].points += pts;
@@ -84,7 +84,7 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
         });
 
         const requiredPoints = (farmData.profile.totalAreaUR * 0.25) * 5.0;
-        
+
         return {
             stats: {
                 totalPoints,
@@ -135,13 +135,13 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
         const hist = field?.history.find(h => h.year === selectedYear);
         const part = hist?.cropParts?.[partIdx];
         if (!part) return false;
-        
+
         const rate = activeRates.find(r => r.shortName === code);
         return rate?.conflictsWith?.some(forbidden => part.ecoSchemes.includes(forbidden));
     };
 
     const resetSimulation = () => {
-        if(window.confirm("Czy na pewno chcesz zresetować symulację do danych z bazy?")) {
+        if (window.confirm("Czy na pewno chcesz zresetować symulację do danych z bazy?")) {
             setSimulatedFields(JSON.parse(JSON.stringify(farmData.fields)));
         }
     };
@@ -156,7 +156,12 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                             <Calculator size={32} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-800">Symulator Ekoschematów {selectedYear}</h2>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-black text-slate-800">Symulator Ekoschematów {selectedYear}</h2>
+                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${getCampaignStatus(selectedYear).color}`}>
+                                    {getCampaignStatus(selectedYear).label}
+                                </span>
+                            </div>
                             <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Planowanie optymalnych dopłat</p>
                         </div>
                     </div>
@@ -176,30 +181,38 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                             </div>
                         </div>
                         <div className="flex gap-2">
-                            <button onClick={resetSimulation} className="p-2 text-slate-400 hover:text-slate-600 transition-colors" title="Resetuj"><RefreshCw size={20}/></button>
-                            <button 
+                            <button onClick={resetSimulation} className="p-2 text-slate-400 hover:text-slate-600 transition-colors" title="Resetuj"><RefreshCw size={20} /></button>
+                            <button
                                 onClick={() => onApplyPlan(simulatedFields)}
                                 disabled={conflicts.length > 0}
-                                className={`px-6 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 transition-all shadow-lg active:scale-95 ${
-                                    conflicts.length > 0 
-                                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed' 
+                                className={`px-6 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 transition-all shadow-lg active:scale-95 ${conflicts.length > 0
+                                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                                     : 'bg-slate-900 text-white hover:bg-black'
-                                }`}
+                                    }`}
                             >
                                 <Save size={18} /> Zastosuj Plan
                             </button>
                         </div>
                     </div>
                 </div>
-                
+
                 <div className="max-w-7xl mx-auto mt-4">
                     <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                        <div 
+                        <div
                             className={`h-full transition-all duration-500 ${stats.isMet ? 'bg-emerald-500' : 'bg-amber-400'}`}
                             style={{ width: `${Math.min((stats.totalPoints / (stats.requiredPoints || 1)) * 100, 100)}%` }}
                         ></div>
                     </div>
                 </div>
+                {getCampaignStatus(selectedYear).type !== 'DRAFT' && (
+                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 mt-6">
+                        <Info size={24} className="text-blue-600 flex-shrink-0" />
+                        <div>
+                            <h4 className="font-bold text-blue-800 text-sm">Tryb Podglądu Historycznego</h4>
+                            <p className="text-xs text-blue-700">Symulujesz ekoschematy dla kampanii o statusie <strong>{getCampaignStatus(selectedYear).label}</strong>. Zmiany nie wpłyną na bieżący wniosek (2026).</p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -244,7 +257,7 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                                         <p className="text-sm font-bold text-slate-700">{hist.crop}</p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="p-4 space-y-4">
                                     {parts.map((part, pIdx) => (
                                         <div key={pIdx} className="space-y-3">
@@ -252,23 +265,22 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                                                 <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">Część {part.designation}</span>
                                                 <span className="font-bold text-slate-500">{part.area.toFixed(2)} ha</span>
                                             </div>
-                                            
+
                                             <div className="flex flex-wrap gap-2">
                                                 {ecoSchemes.map(eco => {
                                                     const isSelected = part.ecoSchemes.includes(eco.shortName!);
                                                     const hasConflict = !isSelected && isConflicted(field.id, pIdx, eco.shortName!);
-                                                    
+
                                                     return (
                                                         <button
                                                             key={eco.id}
                                                             onClick={() => toggleScheme(field.id, pIdx, eco.shortName!)}
-                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all border flex items-center gap-1.5 ${
-                                                                isSelected 
-                                                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-md hover:bg-emerald-700' 
+                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all border flex items-center gap-1.5 ${isSelected
+                                                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-md hover:bg-emerald-700'
                                                                 : hasConflict
                                                                     ? 'bg-red-50 border-red-200 text-red-400 cursor-help ring-2 ring-red-100 ring-offset-2 animate-pulse'
                                                                     : 'bg-white border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-600'
-                                                            }`}
+                                                                }`}
                                                             title={hasConflict ? "Ten ekoschemat wyklucza się z już wybranym na tym polu" : ""}
                                                         >
                                                             {hasConflict && <AlertCircle size={12} />}
@@ -294,7 +306,7 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                             <Leaf size={20} />
                             Podsumowanie
                         </h3>
-                        
+
                         <div className="space-y-4 relative z-10">
                             {stats.schemes.length === 0 ? (
                                 <p className="text-emerald-200 text-sm italic">Wybierz ekoschematy na działkach, aby zobaczyć wyliczenia.</p>

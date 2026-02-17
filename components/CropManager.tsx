@@ -18,6 +18,7 @@ const CropManager: React.FC<CropManagerProps> = ({ fields, selectedYear, onUpdat
   const [showAllFields, setShowAllFields] = useState(false);
   
   const [editForm, setEditForm] = useState<{ crop: CropType; ecoSchemes: string; designation: string; }>({ crop: 'Mieszanka', ecoSchemes: '', designation: 'A' });
+  const [formErrors, setFormErrors] = useState<Record<string, boolean>>({});
 
   const getCropDataForYear = (field: Field, year: number) => {
       const historyEntry = field.history?.find(h => h.year === year);
@@ -51,12 +52,18 @@ const CropManager: React.FC<CropManagerProps> = ({ fields, selectedYear, onUpdat
 
   const startEditing = (field: Field) => {
     setEditingId(field.id);
+    setFormErrors({});
     const cropData = getCropDataForYear(field, selectedYear);
     const firstPart = cropData?.parts?.[0];
     setEditForm({ crop: firstPart ? (firstPart.crop as CropType) : 'Mieszanka', ecoSchemes: firstPart ? firstPart.ecoSchemes.join(', ') : '', designation: firstPart ? firstPart.designation : 'A' });
   };
 
   const saveEditing = (id: string) => {
+      if (!editForm.designation.trim()) {
+          setFormErrors({ designation: true });
+          return;
+      }
+
       const updated = fields.map(field => {
           if (field.id !== id) return field;
           const newEco = editForm.ecoSchemes.split(',').map(s=>s.trim()).filter(s=>s);
@@ -68,6 +75,7 @@ const CropManager: React.FC<CropManagerProps> = ({ fields, selectedYear, onUpdat
       });
       onUpdateFields(updated);
       setEditingId(null);
+      setFormErrors({});
   };
 
   const visibleFields = fields.filter(f => showAllFields || getCropDataForYear(f, selectedYear) !== null).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
@@ -94,7 +102,7 @@ const CropManager: React.FC<CropManagerProps> = ({ fields, selectedYear, onUpdat
               <th className="p-4 font-semibold">Roślina</th>
               <th className="p-4 font-semibold">Powierzchnia</th>
               <th className="p-4 font-semibold">Ekoschematy</th>
-              <th className="p-4 font-semibold text-right">Akcje</th>
+              <th className="p-4 font-semibold text-right">Akcja</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -106,11 +114,11 @@ const CropManager: React.FC<CropManagerProps> = ({ fields, selectedYear, onUpdat
                 return rows.map((part: any, idx: number) => (
                     <tr key={`${field.id}-${idx}`} className={`transition-colors ${isEditing ? 'bg-amber-50' : 'hover:bg-slate-50'}`}>
                         <td className="p-4">{idx === 0 && <div><div className="font-bold">{field.name}</div><div className="text-[10px] text-slate-400 font-mono">{field.registrationNumber}</div></div>}</td>
-                        <td className="p-4 text-center">{isEditing && idx === 0 ? <input value={editForm.designation} onChange={e=>setEditForm({...editForm, designation: e.target.value})} className="w-10 border rounded text-center font-bold"/> : <span className="bg-slate-800 text-white px-2 py-1 rounded-full text-xs font-bold">{part.designation}</span>}</td>
+                        <td className="p-4 text-center">{isEditing && idx === 0 ? <input value={editForm.designation} onChange={e=>setEditForm({...editForm, designation: e.target.value})} className={`w-10 border rounded text-center font-bold ${formErrors.designation ? 'border-red-500 ring-1 ring-red-500' : ''}`} placeholder="A"/> : <span className="bg-slate-800 text-white px-2 py-1 rounded-full text-xs font-bold">{part.designation}</span>}</td>
                         <td className="p-4">{isEditing && idx === 0 ? <select value={editForm.crop} onChange={e=>setEditForm({...editForm, crop: e.target.value as any})} className="border rounded p-1 text-sm">{CROP_TYPES.map(c=><option key={c} value={c}>{c}</option>)}</select> : <span className="font-semibold text-slate-700">{part.crop || 'Brak'}</span>}</td>
                         <td className="p-4 font-mono">{part.area.toFixed(2)} ha</td>
-                        <td className="p-4">{isEditing && idx === 0 ? <input value={editForm.ecoSchemes} onChange={e=>setEditForm({...editForm, ecoSchemes: e.target.value})} className="border rounded p-1 text-xs w-full"/> : <div className="flex flex-wrap gap-1">{part.ecoSchemes.map((es:string)=><span key={es} className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 font-black">{es}</span>)}</div>}</td>
-                        <td className="p-4 text-right">{idx === 0 && (isEditing ? <button onClick={()=>saveEditing(field.id)} className="p-1.5 text-white bg-emerald-500 rounded shadow"><Save size={16}/></button> : <button onClick={()=>startEditing(field)} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded"><Edit2 size={16}/></button>)}</td>
+                        <td className="p-4">{isEditing && idx === 0 ? <input value={editForm.ecoSchemes} onChange={e=>setEditForm({...editForm, ecoSchemes: e.target.value})} className="border rounded p-1 text-xs w-full" placeholder="np. E_ZSU, E_MIO"/> : <div className="flex flex-wrap gap-1">{part.ecoSchemes.map((es:string)=><span key={es} className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 font-black">{es}</span>)}</div>}</td>
+                        <td className="p-4 text-right">{idx === 0 && (isEditing ? <div className="flex justify-end gap-2"><button onClick={()=>saveEditing(field.id)} className="p-1.5 text-white bg-emerald-500 rounded shadow"><Save size={16}/></button><button onClick={()=>{setEditingId(null); setFormErrors({});}} className="p-1.5 text-slate-500 hover:bg-slate-200 rounded"><X size={16}/></button></div> : <button onClick={()=>startEditing(field)} className="p-1.5 text-slate-400 hover:text-emerald-600 rounded"><Edit2 size={16}/></button>)}</td>
                     </tr>
                 ));
             })}

@@ -1,4 +1,3 @@
-
 import { KnowledgeChunk, FarmerDocument } from '../types';
 
 const CHUNK_SIZE = 1000;
@@ -9,7 +8,6 @@ class RagEngine {
     private chunks: KnowledgeChunk[] = [];
 
     constructor() {
-        // Odczytaj zapisane chunki z localStorage przy starcie
         this.loadFromStorage();
     }
 
@@ -36,7 +34,7 @@ class RagEngine {
 
     public async indexDocument(doc: FarmerDocument, text: string) {
         if (!text || text.trim().length === 0) return;
-        
+
         this.chunks = this.chunks.filter(c => c.documentId !== doc.id);
 
         const newChunks: KnowledgeChunk[] = [];
@@ -45,7 +43,7 @@ class RagEngine {
         while (startIndex < text.length) {
             const endIndex = startIndex + CHUNK_SIZE;
             const content = text.substring(startIndex, endIndex);
-            
+
             if (content.trim().length > 0) {
                 newChunks.push({
                     id: `chunk_${doc.id}_${newChunks.length}`,
@@ -65,25 +63,40 @@ class RagEngine {
         }
 
         this.chunks.push(...newChunks);
-        this.saveToStorage(); // ← ZAPISZ DO localStorage
+        this.saveToStorage();
         console.log(`[RAG] Zindeksowano: ${doc.name} (${newChunks.length} fragmentów)`);
     }
 
     public async getRelevantContextSemantic(query: string, limit: number = 5): Promise<KnowledgeChunk[]> {
         if (!query || this.chunks.length === 0) return [];
 
-        const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 3);
-        
+        // NAPRAWKA: próg >= 2 zamiast > 3
+        // Obsługuje krótkie ale ważne słowa: "ha", "pH", "ONW", "WPR", "ARiMR", kody ekoschematów
+        const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+
+        if (searchTerms.length === 0) return [];
+
+        const queryLower = query.toLowerCase();
+
         const scored = this.chunks.map(chunk => {
             let score = 0;
             const contentLower = chunk.content.toLowerCase();
-            
+
             searchTerms.forEach(term => {
-                if (contentLower.includes(term)) {
-                    score += 1;
-                    if (contentLower.indexOf(term) === 0) score += 0.5;
+                // Liczymy WSZYSTKIE wystąpienia — nie tylko pierwsze
+                const occurrences = (contentLower.match(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+                if (occurrences > 0) {
+                    score += occurrences;                             // wielokrotność = wyższy wynik
+                    if (contentLower.startsWith(term)) score += 0.5; // bonus: termin na początku fragmentu
+                    if (chunk.metadata.section !== 'Dane ogólne') score += 0.3; // bonus: trafiła sekcja tematyczna
                 }
             });
+
+            // Bonusy kontekstowe — dopasowanie kategorii dokumentu do zapytania
+            if (queryLower.includes('ekoschemat') && chunk.category === 'WNIOSEK') score += 1;
+            if (queryLower.includes('działka') && chunk.metadata.section === 'Grunty') score += 1;
+            if (queryLower.includes('wniosek') && chunk.metadata.section === 'Wniosek') score += 1;
+            if ((queryLower.includes('ha') || queryLower.includes('powierzchnia')) && chunk.metadata.section === 'Grunty') score += 0.5;
 
             return { chunk, score };
         });
