@@ -17,6 +17,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'CHECKING' | 'ONLINE' | 'OFFLINE'>('CHECKING');
+  const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
       api.checkConnection().then(isOnline => {
@@ -57,9 +58,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         </div>
         
         <div className="relative z-10">
-            <div className="flex items-center space-x-4 text-emerald-400 mb-10 drop-shadow-lg">
-                <Tractor size={56} className="filter drop-shadow-md" />
-                <span className="text-4xl font-black tracking-tighter">AgroOptima</span>
+            <div className="flex items-center space-x-4 text-emerald-400 mb-10 drop-shadow-lg h-20">
+                {!logoError ? (
+                    <img 
+                        src={role === 'ADVISOR' ? "/static/logo-advisor.png" : "/static/logo-farmer.png"}
+                        alt="AgroOptima" 
+                        className="h-full object-contain rounded-xl shadow-lg bg-white/10 backdrop-blur-sm p-2" 
+                        onError={() => setLogoError(true)}
+                    />
+                ) : (
+                    <>
+                        <Tractor size={56} className="filter drop-shadow-md" />
+                        <span className="text-4xl font-black tracking-tighter">AgroOptima</span>
+                    </>
+                )}
             </div>
             <h1 className="text-6xl font-black leading-tight mb-8 tracking-tighter">
                 {isRegistering ? 'Dołącz do społeczności' : (role === 'ADVISOR' ? 'Inteligentne Doradztwo WPR' : 'Twój Asystent Polowy')}

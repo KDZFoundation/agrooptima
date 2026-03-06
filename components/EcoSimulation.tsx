@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Calculator, Save, Info, CheckCircle, AlertTriangle, Wallet, Leaf, RefreshCw, Layers, ArrowRight, AlertCircle, XCircle } from 'lucide-react';
 import { FarmData, Field, SubsidyRate, EcoSchemeCalculation, getCampaignStatus } from '../types';
@@ -130,14 +129,17 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
         });
     };
 
-    const isConflicted = (fieldId: string, partIdx: number, code: string) => {
+    const getConflictInfo = (fieldId: string, partIdx: number, code: string) => {
         const field = simulatedFields.find(f => f.id === fieldId);
         const hist = field?.history.find(h => h.year === selectedYear);
         const part = hist?.cropParts?.[partIdx];
-        if (!part) return false;
+        if (!part) return null;
 
         const rate = activeRates.find(r => r.shortName === code);
-        return rate?.conflictsWith?.some(forbidden => part.ecoSchemes.includes(forbidden));
+        if (!rate?.conflictsWith) return null;
+
+        const conflict = rate.conflictsWith.find(forbidden => part.ecoSchemes.includes(forbidden));
+        return conflict || null;
     };
 
     const resetSimulation = () => {
@@ -149,7 +151,7 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
     return (
         <div className="space-y-6">
             {/* STICKY SUMMARY HEADER */}
-            <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 -mx-4 md:-mx-8 px-4 md:px-8 py-4 shadow-sm mb-6">
+            <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 -mx-4 md:-mx-8 px-4 md:px-8 py-4 shadow-sm mb-6 transition-all">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
                     <div className="flex items-center gap-4">
                         <div className={`p-3 rounded-2xl ${stats.isMet ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -169,7 +171,7 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                     <div className="flex items-center gap-8">
                         <div className="text-center">
                             <p className="text-[10px] font-black text-slate-400 uppercase">Szacowany Zysk</p>
-                            <p className="text-2xl font-black text-emerald-600">~{stats.totalValue.toLocaleString()} <span className="text-sm">PLN</span></p>
+                            <p className="text-2xl font-black text-emerald-600">~{stats.totalValue.toLocaleString('pl-PL')} <span className="text-sm">PLN</span></p>
                         </div>
                         <div className="text-center border-x border-slate-100 px-8">
                             <p className="text-[10px] font-black text-slate-400 uppercase">Zgromadzone Punkty</p>
@@ -204,15 +206,6 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                         ></div>
                     </div>
                 </div>
-                {getCampaignStatus(selectedYear).type !== 'DRAFT' && (
-                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 mt-6">
-                        <Info size={24} className="text-blue-600 flex-shrink-0" />
-                        <div>
-                            <h4 className="font-bold text-blue-800 text-sm">Tryb Podglądu Historycznego</h4>
-                            <p className="text-xs text-blue-700">Symulujesz ekoschematy dla kampanii o statusie <strong>{getCampaignStatus(selectedYear).label}</strong>. Zmiany nie wpłyną na bieżący wniosek (2026).</p>
-                        </div>
-                    </div>
-                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -246,47 +239,84 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                         const hist = field.history.find(h => h.year === selectedYear)!;
                         const parts = hist.cropParts || [{ designation: 'A', crop: hist.crop, area: hist.area || field.area, ecoSchemes: hist.appliedEcoSchemes }];
 
+                        // Calculate Field Totals
+                        let fieldTotalPoints = 0;
+                        let fieldTotalValue = 0;
+                        parts.forEach(part => {
+                             part.ecoSchemes.forEach(code => {
+                                const rate = activeRates.find(r => r.shortName === code);
+                                if (rate) {
+                                    if (rate.points) {
+                                        const pts = part.area * rate.points;
+                                        fieldTotalPoints += pts;
+                                        fieldTotalValue += pts * 100;
+                                    } else {
+                                        fieldTotalValue += part.area * rate.rate;
+                                    }
+                                }
+                             });
+                        });
+
                         return (
-                            <div key={field.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:border-emerald-200 transition-all">
-                                <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                            <div key={field.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group hover:border-emerald-300 transition-all">
+                                <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-start">
                                     <div>
-                                        <h4 className="font-bold text-slate-800">{field.name}</h4>
-                                        <p className="text-[10px] font-mono text-slate-400">{field.registrationNumber} • {field.area} ha PEG</p>
+                                        <h4 className="font-black text-slate-800 text-lg">{hist.crop === 'Wiele upraw' ? field.name : hist.crop}</h4>
+                                        <div className="flex items-center gap-2 mt-1">
+                                             <span className="text-xs font-bold text-slate-500">Nr: {field.registrationNumber}</span>
+                                             <span className="text-xs text-slate-400">•</span>
+                                             <span className="text-xs font-bold text-slate-600">{field.area.toFixed(2)} ha</span>
+                                        </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm font-bold text-slate-700">{hist.crop}</p>
+                                        <p className="text-xl font-black text-emerald-600 tracking-tight">
+                                            +{fieldTotalValue.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+                                        </p>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+                                            Punkty: {fieldTotalPoints.toFixed(1)} pkt
+                                        </p>
                                     </div>
                                 </div>
 
                                 <div className="p-4 space-y-4">
                                     {parts.map((part, pIdx) => (
                                         <div key={pIdx} className="space-y-3">
-                                            <div className="flex justify-between items-center text-xs">
-                                                <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">Część {part.designation}</span>
-                                                <span className="font-bold text-slate-500">{part.area.toFixed(2)} ha</span>
-                                            </div>
+                                            {parts.length > 1 && (
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black">Część {part.designation}</span>
+                                                    <span className="font-bold text-slate-500">{part.area.toFixed(2)} ha</span>
+                                                </div>
+                                            )}
 
                                             <div className="flex flex-wrap gap-2">
                                                 {ecoSchemes.map(eco => {
                                                     const isSelected = part.ecoSchemes.includes(eco.shortName!);
-                                                    const hasConflict = !isSelected && isConflicted(field.id, pIdx, eco.shortName!);
+                                                    const conflictScheme = !isSelected ? getConflictInfo(field.id, pIdx, eco.shortName!) : null;
+                                                    const hasConflict = !!conflictScheme;
 
                                                     return (
-                                                        <button
-                                                            key={eco.id}
-                                                            onClick={() => toggleScheme(field.id, pIdx, eco.shortName!)}
-                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all border flex items-center gap-1.5 ${isSelected
-                                                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-md hover:bg-emerald-700'
-                                                                : hasConflict
-                                                                    ? 'bg-red-50 border-red-200 text-red-400 cursor-help ring-2 ring-red-100 ring-offset-2 animate-pulse'
-                                                                    : 'bg-white border-slate-200 text-slate-400 hover:border-emerald-300 hover:text-emerald-600'
-                                                                }`}
-                                                            title={hasConflict ? "Ten ekoschemat wyklucza się z już wybranym na tym polu" : ""}
-                                                        >
-                                                            {hasConflict && <AlertCircle size={12} />}
-                                                            {eco.shortName}
-                                                            {isSelected && <span className="opacity-70">• {((eco.points || 0) * part.area).toFixed(1)} pkt</span>}
-                                                        </button>
+                                                        <div key={eco.id} className="relative group/btn">
+                                                            <button
+                                                                title={eco.name}
+                                                                onClick={() => toggleScheme(field.id, pIdx, eco.shortName!)}
+                                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all border flex items-center gap-1.5 ${isSelected
+                                                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-md hover:bg-emerald-700'
+                                                                    : hasConflict
+                                                                        ? 'bg-white border-red-200 text-slate-300 opacity-60 cursor-not-allowed'
+                                                                        : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600'
+                                                                    }`}
+                                                            >
+                                                                {isSelected && <CheckCircle size={12} />}
+                                                                {eco.shortName}
+                                                                <span className={`font-medium normal-case ml-0.5 ${isSelected ? 'text-emerald-200' : 'text-slate-400'}`}>• {eco.points} pkt</span>
+                                                            </button>
+                                                            {hasConflict && (
+                                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] rounded shadow-lg whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity z-10 pointer-events-none">
+                                                                    Kolizja z: {conflictScheme}
+                                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-800"></div>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     );
                                                 })}
                                             </div>
@@ -340,19 +370,10 @@ const EcoSimulation: React.FC<EcoSimulationProps> = ({ farmData, selectedYear, o
                                 </div>
                             ) : (
                                 <div className="flex gap-3 text-sm text-red-700 bg-red-50 p-3 rounded-xl border border-red-100">
-                                    <AlertTriangle size={18} className="flex-shrink-0" />
-                                    <p>Uwaga: Niektóre praktyki (np. <strong>{conflicts[0].schemes.join(' oraz ')}</strong>) nie mogą być realizowane jednocześnie na tej samej powierzchni.</p>
+                                    <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
+                                    <p>Znaleziono {conflicts.length} kolizji. Sprawdź listę powyżej.</p>
                                 </div>
                             )}
-
-                            <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-700 font-medium border border-blue-100">
-                                <p className="font-bold mb-1">Zasada łączenia:</p>
-                                <ul className="list-disc ml-4 space-y-1">
-                                    <li>E_OBOR wyklucza się z E_GNOJ</li>
-                                    <li>E_USU wyklucza się z E_SLOM</li>
-                                    <li>Zasiewy muszą być zgodne z ewidencją PEG</li>
-                                </ul>
-                            </div>
                         </div>
                     </div>
                 </div>

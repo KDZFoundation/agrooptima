@@ -130,7 +130,7 @@ const HierarchyExplorer: React.FC<HierarchyExplorerProps> = ({ farmData, selecte
         );
     };
 
-    const ProcessNodeCard = ({ node }: { node: HierarchyNode }) => {
+    const ProcessNodeCard: React.FC<{ node: HierarchyNode }> = ({ node }) => {
         const isSelected = selectedNodeId === node.id;
         const isRelated = false; // TODO: Implement path highlighting logic
 

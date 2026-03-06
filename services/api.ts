@@ -1,3 +1,4 @@
+
 import { FarmerClient, Field, FarmerDocument, SubsidyRate, CropDefinition, CsvTemplate, AuthResponse, User } from '../types';
 import { MOCK_CLIENTS, DEFAULT_CSV_TEMPLATES } from '../constants';
 
@@ -80,22 +81,28 @@ export const api = {
             if (!res.ok) throw new Error();
             const data = await res.json();
             if (data) {
-                localStorage.setItem('ao_clients', JSON.stringify(data));
+                try {
+                    localStorage.setItem('ao_clients', JSON.stringify(data));
+                } catch (e) { console.warn("LS full/error", e); }
                 return data;
             }
             throw new Error();
         } catch (error) {
-            const local = localStorage.getItem('ao_clients');
-            return local ? JSON.parse(local) : MOCK_CLIENTS;
+            try {
+                const local = localStorage.getItem('ao_clients');
+                return local ? JSON.parse(local) : MOCK_CLIENTS;
+            } catch (e) { return MOCK_CLIENTS; }
         }
     },
 
     async createOrUpdateClient(client: FarmerClient): Promise<FarmerClient | null> {
         // Zapis lokalny — zawsze działa
-        const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const idx = local.findIndex((c: any) => c.producerId === client.producerId);
-        if (idx >= 0) local[idx] = client; else local.push(client);
-        localStorage.setItem('ao_clients', JSON.stringify(local));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+            const idx = local.findIndex((c: any) => c.producerId === client.producerId);
+            if (idx >= 0) local[idx] = client; else local.push(client);
+            localStorage.setItem('ao_clients', JSON.stringify(local));
+        } catch (e) { console.warn("LS error", e); }
 
         // Próba zapisu na serwerze
         try {
@@ -106,10 +113,12 @@ export const api = {
             });
             if (res.ok) {
                 const saved = await res.json();
-                const localUpdated = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-                const idx2 = localUpdated.findIndex((c: any) => c.producerId === saved.producerId);
-                if (idx2 >= 0) localUpdated[idx2] = saved; else localUpdated.push(saved);
-                localStorage.setItem('ao_clients', JSON.stringify(localUpdated));
+                try {
+                    const localUpdated = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+                    const idx2 = localUpdated.findIndex((c: any) => c.producerId === saved.producerId);
+                    if (idx2 >= 0) localUpdated[idx2] = saved; else localUpdated.push(saved);
+                    localStorage.setItem('ao_clients', JSON.stringify(localUpdated));
+                } catch (e) { }
                 return saved;
             }
         } catch (e) {
@@ -123,8 +132,10 @@ export const api = {
         try {
             await fetchWithTimeout(`${API_BASE_URL}/clients/${id}`, { method: 'DELETE', headers: getHeaders() });
         } catch (e) { }
-        const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        localStorage.setItem('ao_clients', JSON.stringify(local.filter((c: any) => c.producerId !== id)));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+            localStorage.setItem('ao_clients', JSON.stringify(local.filter((c: any) => c.producerId !== id)));
+        } catch (e) { }
         return true;
     },
 
@@ -136,7 +147,9 @@ export const api = {
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.length > 0) {
-                    localStorage.setItem(`fields_${clientId}`, JSON.stringify(data));
+                    try {
+                        localStorage.setItem(`fields_${clientId}`, JSON.stringify(data));
+                    } catch (e) {}
                     return data;
                 }
             }
@@ -148,7 +161,9 @@ export const api = {
 
     async saveClientFields(clientId: string, fields: Field[]): Promise<Field[]> {
         // Zapis lokalny — zawsze działa
-        localStorage.setItem(`fields_${clientId}`, JSON.stringify(fields));
+        try {
+            localStorage.setItem(`fields_${clientId}`, JSON.stringify(fields));
+        } catch (e) { console.warn("LS error", e); }
 
         try {
             await fetchWithTimeout(`${API_BASE_URL}/clients/${clientId}/fields`, {
@@ -164,13 +179,15 @@ export const api = {
     },
 
     async addDocument(clientId: string, doc: FarmerDocument): Promise<FarmerDocument | null> {
-        const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const clientIdx = localClients.findIndex((c: any) => c.producerId === clientId);
-        if (clientIdx >= 0) {
-            if (!localClients[clientIdx].documents) localClients[clientIdx].documents = [];
-            localClients[clientIdx].documents.push(doc);
-            localStorage.setItem('ao_clients', JSON.stringify(localClients));
-        }
+        try {
+            const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+            const clientIdx = localClients.findIndex((c: any) => c.producerId === clientId);
+            if (clientIdx >= 0) {
+                if (!localClients[clientIdx].documents) localClients[clientIdx].documents = [];
+                localClients[clientIdx].documents.push(doc);
+                localStorage.setItem('ao_clients', JSON.stringify(localClients));
+            }
+        } catch (e) {}
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/clients/${clientId}/documents`, {
@@ -186,12 +203,14 @@ export const api = {
     },
 
     async removeDocument(clientId: string, docId: string): Promise<boolean> {
-        const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
-        const clientIdx = localClients.findIndex((c: any) => c.producerId === clientId);
-        if (clientIdx >= 0) {
-            localClients[clientIdx].documents = localClients[clientIdx].documents.filter((d: any) => d.id !== docId);
-            localStorage.setItem('ao_clients', JSON.stringify(localClients));
-        }
+        try {
+            const localClients = JSON.parse(localStorage.getItem('ao_clients') || '[]');
+            const clientIdx = localClients.findIndex((c: any) => c.producerId === clientId);
+            if (clientIdx >= 0) {
+                localClients[clientIdx].documents = localClients[clientIdx].documents.filter((d: any) => d.id !== docId);
+                localStorage.setItem('ao_clients', JSON.stringify(localClients));
+            }
+        } catch (e) {}
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/clients/${clientId}/documents/${docId}`, { method: 'DELETE', headers: getHeaders() });
@@ -211,7 +230,9 @@ export const api = {
                 const data = await res.json();
                 if (data && Array.isArray(data)) {
                     savedTemplates = data;
-                    localStorage.setItem('ao_templates', JSON.stringify(data));
+                    try {
+                        localStorage.setItem('ao_templates', JSON.stringify(data));
+                    } catch(e) {}
                 }
             }
         } catch (e) { }
@@ -224,10 +245,12 @@ export const api = {
 
     async saveTemplate(tpl: CsvTemplate): Promise<CsvTemplate | null> {
         // 1. Zapis lokalny
-        const local = JSON.parse(localStorage.getItem('ao_templates') || '[]');
-        const idx = local.findIndex((t: any) => t.id === tpl.id);
-        if (idx >= 0) local[idx] = tpl; else local.push(tpl);
-        localStorage.setItem('ao_templates', JSON.stringify(local));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_templates') || '[]');
+            const idx = local.findIndex((t: any) => t.id === tpl.id);
+            if (idx >= 0) local[idx] = tpl; else local.push(tpl);
+            localStorage.setItem('ao_templates', JSON.stringify(local));
+        } catch(e) {}
 
         // 2. Próba zapisu na serwerze
         try {
@@ -248,21 +271,25 @@ export const api = {
         try {
             await fetchWithTimeout(`${API_BASE_URL}/templates/${id}`, { method: 'DELETE', headers: getHeaders() });
         } catch (e) { }
-        const local = JSON.parse(localStorage.getItem('ao_templates') || '[]');
-        const filtered = local.filter((t: any) => t.id !== id);
-        localStorage.setItem('ao_templates', JSON.stringify(filtered));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_templates') || '[]');
+            const filtered = local.filter((t: any) => t.id !== id);
+            localStorage.setItem('ao_templates', JSON.stringify(filtered));
+        } catch(e) {}
         return true;
     },
 
     async getRates(): Promise<SubsidyRate[]> {
         const local = localStorage.getItem('ao_rates');
-        if (local) return JSON.parse(local);
+        if (local) {
+            try { return JSON.parse(local); } catch (e) { return []; }
+        }
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/rates`, { headers: getHeaders() });
             if (res.ok) {
                 const data = await res.json();
-                localStorage.setItem('ao_rates', JSON.stringify(data));
+                try { localStorage.setItem('ao_rates', JSON.stringify(data)); } catch(e) {}
                 return data;
             }
         } catch (e) { }
@@ -270,10 +297,15 @@ export const api = {
     },
 
     async saveRate(rate: SubsidyRate): Promise<SubsidyRate | null> {
-        const local = JSON.parse(localStorage.getItem('ao_rates') || '[]');
-        const idx = local.findIndex((r: any) => r.id === rate.id);
-        if (idx >= 0) local[idx] = rate; else local.push(rate);
-        localStorage.setItem('ao_rates', JSON.stringify(local));
+        try {
+            const localStr = localStorage.getItem('ao_rates');
+            const local = localStr ? JSON.parse(localStr) : [];
+            const idx = local.findIndex((r: any) => r.id === rate.id);
+            if (idx >= 0) local[idx] = rate; else local.push(rate);
+            localStorage.setItem('ao_rates', JSON.stringify(local));
+        } catch (e) {
+            console.warn("LocalStorage error during saveRate:", e);
+        }
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/rates`, {
@@ -290,21 +322,25 @@ export const api = {
         try {
             await fetchWithTimeout(`${API_BASE_URL}/rates/${id}`, { method: 'DELETE', headers: getHeaders() });
         } catch (e) { }
-        const local = JSON.parse(localStorage.getItem('ao_rates') || '[]');
-        const filtered = local.filter((r: any) => r.id !== id);
-        localStorage.setItem('ao_rates', JSON.stringify(filtered));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_rates') || '[]');
+            const filtered = local.filter((r: any) => r.id !== id);
+            localStorage.setItem('ao_rates', JSON.stringify(filtered));
+        } catch(e) {}
         return true;
     },
 
     async getCrops(): Promise<CropDefinition[]> {
         const local = localStorage.getItem('ao_crops');
-        if (local) return JSON.parse(local);
+        if (local) {
+            try { return JSON.parse(local); } catch(e) { return []; }
+        }
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/crops`, { headers: getHeaders() });
             if (res.ok) {
                 const data = await res.json();
-                localStorage.setItem('ao_crops', JSON.stringify(data));
+                try { localStorage.setItem('ao_crops', JSON.stringify(data)); } catch(e) {}
                 return data;
             }
         } catch (e) { }
@@ -312,10 +348,12 @@ export const api = {
     },
 
     async saveCrop(crop: CropDefinition): Promise<CropDefinition | null> {
-        const local = JSON.parse(localStorage.getItem('ao_crops') || '[]');
-        const idx = local.findIndex((c: any) => c.id === crop.id);
-        if (idx >= 0) local[idx] = crop; else local.push(crop);
-        localStorage.setItem('ao_crops', JSON.stringify(local));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_crops') || '[]');
+            const idx = local.findIndex((c: any) => c.id === crop.id);
+            if (idx >= 0) local[idx] = crop; else local.push(crop);
+            localStorage.setItem('ao_crops', JSON.stringify(local));
+        } catch(e) {}
 
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/crops`, {
@@ -332,9 +370,22 @@ export const api = {
         try {
             await fetchWithTimeout(`${API_BASE_URL}/crops/${id}`, { method: 'DELETE', headers: getHeaders() });
         } catch (e) { }
-        const local = JSON.parse(localStorage.getItem('ao_crops') || '[]');
-        const filtered = local.filter((c: any) => c.id !== id);
-        localStorage.setItem('ao_crops', JSON.stringify(filtered));
+        try {
+            const local = JSON.parse(localStorage.getItem('ao_crops') || '[]');
+            const filtered = local.filter((c: any) => c.id !== id);
+            localStorage.setItem('ao_crops', JSON.stringify(filtered));
+        } catch(e) {}
         return true;
+    },
+
+    async generateLogo(prompt: string, filename: string): Promise<string> {
+        const res = await fetchWithTimeout(`${API_BASE_URL}/generate-logo`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ prompt, filename })
+        }, 30000);
+        if (!res.ok) throw new Error('Generation failed');
+        const data = await res.json();
+        return data.url;
     }
 };

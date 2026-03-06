@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf, Info, Link2, Star, CheckSquare, Square, Download, Loader2, Share2, Search, User, Database, BrainCircuit } from 'lucide-react';
+import { Settings, Plus, Save, Trash2, Edit, FileSpreadsheet, ChevronRight, X, AlertCircle, Coins, DollarSign, Calendar, Copy, UploadCloud, RefreshCw, Sprout, Leaf, Info, Link2, Star, CheckSquare, Square, Download, Loader2, Share2, Search, User, Database, BrainCircuit, Sparkles } from 'lucide-react';
 import { CsvTemplate, CsvTemplateType, SubsidyRate, CropDefinition, FarmerClient, FarmData } from '../types';
 import { CSV_PARCEL_FIELDS, CSV_CROP_FIELDS, SUBSIDY_RATES_2026, SUBSIDY_RATES_2025, SUBSIDY_RATES_2024, DEFAULT_CROP_DICTIONARY } from '../constants';
 import { api } from '../services/api';
@@ -8,6 +7,7 @@ import HierarchyExplorer from './HierarchyExplorer';
 import SemanticDictionary from './admin/SemanticDictionary';
 import KnowledgeBase from './admin/KnowledgeBase';
 import RuleOrchestrator from './admin/RuleOrchestrator';
+import SemanticExplorer from './SemanticExplorer';
 
 interface AdminPanelProps {
     templates: CsvTemplate[];
@@ -26,7 +26,7 @@ interface MappingRow {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDeleteTemplate, selectedGlobalYear, clients }) => {
-    const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS' | 'AUDIT' | 'RAG' | 'DICT' | 'KB' | 'RULES'>('CSV');
+    const [activeMainTab, setActiveMainTab] = useState<'CSV' | 'RATES' | 'CROPS' | 'AUDIT' | 'RAG' | 'DICT' | 'KB' | 'RULES' | 'BRANDING'>('CSV');
     const [isProcessing, setIsProcessing] = useState(false);
 
     // DAG Audit State
@@ -130,6 +130,28 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
             alert("Błąd pobierania danych do audytu.");
         } finally {
             setIsAuditLoading(false);
+        }
+    };
+
+    const handleGenerateLogos = async () => {
+        setIsProcessing(true);
+        try {
+            await api.generateLogo(
+                "A professional logo for 'AgroOptima Platforma Doradcza'. Clean, modern, minimalist, agricultural theme, green and white colors, vector style, flat design, white background. Text 'AgroOptima' prominent.",
+                "logo-advisor.png"
+            );
+            
+            await api.generateLogo(
+                "A mobile app icon for 'AgroOptimaR Aplikacja dla Rolników'. Clean, modern, minimalist, agricultural theme, green and white colors, vector style, flat design, white background. Text 'AgroOptimaR' prominent.",
+                "logo-farmer.png"
+            );
+            
+            alert("Logotypy zostały wygenerowane! Odśwież stronę, aby zobaczyć zmiany.");
+        } catch (e) {
+            console.error(e);
+            alert("Błąd generowania logotypów.");
+        } finally {
+            setIsProcessing(false);
         }
     };
 
@@ -361,11 +383,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
 
     const handleSaveRate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!rateForm.name || !rateForm.id) return;
+        
+        // Explicit validation feedback
+        if (!rateForm.name || !rateForm.id) {
+            alert("Błąd: Nazwa stawki i ID są wymagane.");
+            return;
+        }
 
         setIsProcessing(true);
         try {
             const rateToSave = rateForm as SubsidyRate;
+            
+            // Ensure numeric values are numbers
+            if (typeof rateToSave.rate === 'string') rateToSave.rate = parseFloat(rateToSave.rate);
+            if (typeof rateToSave.points === 'string') rateToSave.points = parseFloat(rateToSave.points);
+
             const savedRate = await api.saveRate(rateToSave);
 
             if (savedRate) {
@@ -379,6 +411,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                     return [...prev, savedRate];
                 });
                 alert("Zmiany zostały zapisane pomyślnie.");
+            } else {
+                alert("Nie udało się zapisać stawki (błąd API lub pamięci).");
             }
 
             setEditingRate(null);
@@ -386,7 +420,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
             setRateForm({});
         } catch (e) {
             console.error(e);
-            alert("Błąd zapisu stawki.");
+            alert("Wystąpił błąd podczas zapisu.");
         } finally {
             setIsProcessing(false);
         }
@@ -444,7 +478,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
 
     const handleSaveCrop = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!cropForm.name || !cropForm.id) return;
+        if (!cropForm.name || !cropForm.id) {
+            alert("Błąd: Nazwa uprawy jest wymagana.");
+            return;
+        }
 
         setIsProcessing(true);
         try {
@@ -462,6 +499,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                     return [...prev, saved];
                 });
                 alert("Roślina została zapisana w słowniku.");
+            } else {
+                alert("Nie udało się zapisać rośliny.");
             }
 
             setEditingCrop(null);
@@ -586,11 +625,54 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ templates, onSaveTemplate, onDe
                     <Share2 size={18} />
                     Orkiestrator Reguł
                 </button>
+                <button
+                    onClick={() => { setActiveMainTab('BRANDING'); setIsProcessing(false); }}
+                    className={`px-6 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all whitespace-nowrap ${activeMainTab === 'BRANDING'
+                        ? 'bg-white text-emerald-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                >
+                    <Sparkles size={18} />
+                    Branding AI
+                </button>
             </div>
 
             {activeMainTab === 'DICT' && <SemanticDictionary />}
             {activeMainTab === 'KB' && <KnowledgeBase />}
             {activeMainTab === 'RULES' && <RuleOrchestrator />}
+            {activeMainTab === 'BRANDING' && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">Generowanie Logotypów (AI)</h3>
+                    <p className="text-slate-600 mb-6">
+                        Wygeneruj nowe logotypy dla aplikacji używając modelu Gemini.
+                        Logotypy zostaną zapisane na serwerze i będą widoczne dla wszystkich użytkowników.
+                    </p>
+                    
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={handleGenerateLogos} 
+                            disabled={isProcessing}
+                            className="bg-emerald-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                        >
+                            {isProcessing ? <Loader2 className="animate-spin" /> : <Sparkles size={20} />}
+                            Generuj Logotypy
+                        </button>
+                    </div>
+
+                    <div className="mt-8 grid grid-cols-2 gap-8">
+                        <div className="border p-4 rounded-lg bg-slate-50 flex flex-col items-center">
+                            <h4 className="font-semibold mb-4">Logo Doradcy</h4>
+                            <img src="/static/logo-advisor.png" alt="Advisor Logo" className="max-h-32 object-contain mb-2" onError={(e) => e.currentTarget.style.display = 'none'} />
+                            <p className="text-xs text-slate-400">/static/logo-advisor.png</p>
+                        </div>
+                        <div className="border p-4 rounded-lg bg-slate-50 flex flex-col items-center">
+                            <h4 className="font-semibold mb-4">Logo Rolnika</h4>
+                            <img src="/static/logo-farmer.png" alt="Farmer Logo" className="max-h-32 object-contain mb-2" onError={(e) => e.currentTarget.style.display = 'none'} />
+                            <p className="text-xs text-slate-400">/static/logo-farmer.png</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {activeMainTab === 'CSV' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

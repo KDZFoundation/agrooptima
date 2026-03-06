@@ -1,0 +1,329 @@
+{
+  "users": [
+    {
+      "id": "1",
+      "email": "admin@agro.pl",
+      "password": "admin",
+      "fullName": "Administrator",
+      "role": "ADMIN"
+    },
+    {
+      "id": "2",
+      "email": "doradca@agro.pl",
+      "password": "haslo",
+      "fullName": "Jan Doradca",
+      "role": "ADVISOR"
+    }
+  ],
+  "clients": [
+    {
+      "producerId": "012345678",
+      "firstName": "Jan",
+      "lastName": "Kowalski",
+      "farmName": "Gospodarstwo Rolne Jan Kowalski",
+      "totalArea": 50.5,
+      "status": "ACTIVE",
+      "lastContact": "2026-02-20",
+      "documents": []
+    },
+    {
+      "producerId": "876543210",
+      "firstName": "Anna",
+      "lastName": "Nowak",
+      "farmName": "Gospodarstwo Ekologiczne Nowak",
+      "totalArea": 120.0,
+      "status": "ACTIVE",
+      "lastContact": "2026-03-01",
+      "documents": []
+    },
+    {
+      "producerId": "112233445",
+      "firstName": "Piotr",
+      "lastName": "Wiśniewski",
+      "farmName": "Gospodarstwo Wiśniewski",
+      "totalArea": 35.2,
+      "status": "PENDING",
+      "lastContact": "2025-11-15",
+      "documents": []
+    }
+  ],
+  "operations": {
+    "012345678": [
+      {
+        "id": "op1",
+        "fieldId": "f1",
+        "fieldName": "Działka za stodołą",
+        "date": "2026-03-15",
+        "type": "Siew",
+        "productName": "Pszenica ozima",
+        "dosage": 200,
+        "unit": "kg/ha",
+        "isEcoSchemeRelevant": true,
+        "linkedEcoScheme": "Rolnictwo węglowe"
+      },
+      {
+        "id": "op2",
+        "fieldId": "f1",
+        "fieldName": "Działka za stodołą",
+        "date": "2026-04-10",
+        "type": "Nawożenie",
+        "productName": "Saletra amonowa",
+        "dosage": 150,
+        "unit": "kg/ha",
+        "isEcoSchemeRelevant": false
+      },
+      {
+        "id": "op3",
+        "fieldId": "f2",
+        "fieldName": "Łąka przy lesie",
+        "date": "2026-05-05",
+        "type": "Zabieg agrotechniczny",
+        "productName": "Koszenie",
+        "dosage": 0,
+        "unit": "-",
+        "isEcoSchemeRelevant": false
+      }
+    ]
+  },
+  "documents": {
+    "012345678": [
+      {
+        "id": "doc1",
+        "name": "Faktura_nawozy_2026.pdf",
+        "type": "application/pdf",
+        "category": "INVOICE",
+        "campaignYear": 2026,
+        "size": 102400,
+        "uploadDate": "2026-03-01T10:00:00Z"
+      },
+      {
+        "id": "doc2",
+        "name": "Wniosek_obszarowy_2025.pdf",
+        "type": "application/pdf",
+        "category": "APPLICATION",
+        "campaignYear": 2025,
+        "size": 256000,
+        "uploadDate": "2025-05-15T12:30:00Z"
+      }
+    ]
+  },
+  "fields": {
+    "012345678": [
+      {
+        "id": "f1",
+        "name": "Działka za stodołą",
+        "registrationNumber": "123/4",
+        "area": 10.5,
+        "eligibleArea": 10.5,
+        "crop": "Pszenica ozima",
+        "voivodeship": "Mazowieckie",
+        "district": "Warszawski",
+        "commune": "Warszawa",
+        "precinctName": "Obręb 1",
+        "precinctNumber": "0001",
+        "mapSheet": "Arkusz 1",
+        "history": [
+          {
+            "year": 2025,
+            "crop": "Rzepak ozimy",
+            "appliedEcoSchemes": ["Rolnictwo węglowe"],
+            "soilPh": 6.5
+          },
+          {
+            "year": 2026,
+            "crop": "Pszenica ozima",
+            "appliedEcoSchemes": ["Rolnictwo węglowe"],
+            "soilPh": 6.4
+          }
+        ]
+      },
+      {
+        "id": "f2",
+        "name": "Łąka przy lesie",
+        "registrationNumber": "124/5",
+        "area": 5.0,
+        "eligibleArea": 5.0,
+        "crop": "Trawa",
+        "voivodeship": "Mazowieckie",
+        "district": "Warszawski",
+        "commune": "Warszawa",
+        "precinctName": "Obręb 1",
+        "precinctNumber": "0001",
+        "mapSheet": "Arkusz 1",
+        "history": [
+          {
+            "year": 2025,
+            "crop": "Trawa",
+            "appliedEcoSchemes": [],
+            "soilPh": 6.0
+          },
+          {
+            "year": 2026,
+            "crop": "Trawa",
+            "appliedEcoSchemes": [],
+            "soilPh": 6.0
+          }
+        ]
+      }
+    ],
+    "876543210": [
+      {
+        "id": "f3",
+        "name": "Pole ekologiczne 1",
+        "registrationNumber": "99/1",
+        "area": 20.0,
+        "eligibleArea": 20.0,
+        "crop": "Owies",
+        "voivodeship": "Wielkopolskie",
+        "district": "Poznański",
+        "commune": "Poznań",
+        "precinctName": "Obręb 2",
+        "precinctNumber": "0002",
+        "mapSheet": "Arkusz 2",
+        "history": [
+          {
+            "year": 2025,
+            "crop": "Łubin",
+            "appliedEcoSchemes": ["Rolnictwo ekologiczne"],
+            "soilPh": 6.2
+          },
+          {
+            "year": 2026,
+            "crop": "Owies",
+            "appliedEcoSchemes": ["Rolnictwo ekologiczne"],
+            "soilPh": 6.2
+          }
+        ]
+      }
+    ]
+  },
+  "templates": [
+    {
+      "id": "tpl1",
+      "name": "Standardowy eksport ARiMR",
+      "type": "ARIMR_EXPORT",
+      "year": 2026,
+      "separator": ";",
+      "mappings": {
+        "registrationNumber": "Numer działki",
+        "area": "Powierzchnia",
+        "crop": "Uprawa"
+      }
+    },
+    {
+      "id": "tpl2",
+      "name": "Eksport z aplikacji eWniosekPlus",
+      "type": "E_WNIOSEK",
+      "year": 2026,
+      "separator": ",",
+      "mappings": {
+        "registrationNumber": "Nr_dzialki_ewidencyjnej",
+        "area": "Powierzchnia_calkowita",
+        "eligibleArea": "Powierzchnia_PEG",
+        "crop": "Roslina_uprawna"
+      }
+    }
+  ],
+  "rates": [
+    {
+      "id": "r1",
+      "name": "Podstawowe wsparcie dochodu",
+      "shortName": "PWD",
+      "rate": 502.35,
+      "unit": "PLN/ha",
+      "category": "DIRECT",
+      "year": 2026,
+      "combinableWith": ["r2", "r3", "r4"]
+    },
+    {
+      "id": "r2",
+      "name": "Płatność redystrybucyjna",
+      "shortName": "PR",
+      "rate": 180.96,
+      "unit": "PLN/ha",
+      "category": "DIRECT",
+      "year": 2026,
+      "combinableWith": ["r1", "r3", "r4"]
+    },
+    {
+      "id": "r3",
+      "name": "Rolnictwo węglowe",
+      "shortName": "WĘGIEL",
+      "rate": 104.89,
+      "points": 1,
+      "unit": "PLN/pkt",
+      "category": "ECO_SCHEME",
+      "year": 2026,
+      "combinableWith": ["r1", "r2"]
+    },
+    {
+      "id": "r4",
+      "name": "Dobrostan zwierząt",
+      "shortName": "DOBROSTAN",
+      "rate": 104.89,
+      "points": 1,
+      "unit": "PLN/pkt",
+      "category": "ECO_SCHEME",
+      "year": 2026,
+      "combinableWith": ["r1", "r2"]
+    }
+  ],
+  "crops": [
+    {
+      "id": "c1",
+      "name": "Pszenica ozima",
+      "type": "ZBOŻA",
+      "isLegume": false,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c2",
+      "name": "Rzepak ozimy",
+      "type": "OLEISTE",
+      "isLegume": false,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c3",
+      "name": "Łubin wąskolistny",
+      "type": "STRĄCZKOWE",
+      "isLegume": true,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c4",
+      "name": "Gorczyca biała",
+      "type": "POPLON",
+      "isLegume": false,
+      "isCatchCrop": true
+    },
+    {
+      "id": "c5",
+      "name": "Kukurydza na ziarno",
+      "type": "ZBOŻA",
+      "isLegume": false,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c6",
+      "name": "Burak cukrowy",
+      "type": "OKOPOWE",
+      "isLegume": false,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c7",
+      "name": "Trawa",
+      "type": "TRAWY",
+      "isLegume": false,
+      "isCatchCrop": false
+    },
+    {
+      "id": "c8",
+      "name": "Owies",
+      "type": "ZBOŻA",
+      "isLegume": false,
+      "isCatchCrop": false
+    }
+  ]
+}

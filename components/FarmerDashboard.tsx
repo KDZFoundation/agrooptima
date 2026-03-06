@@ -132,14 +132,19 @@ const FarmerDashboard: React.FC<FarmerDashboardProps> = ({ farmData, onNavigate,
               <div className="text-[10px] text-slate-400 font-bold uppercase">Podstawa + Ekoschematy</div>
           </div>
 
-          {/* Card 3: Deadline (Restored) */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group hover:shadow-md transition-all">
+          {/* Card 3: Field Manager (Restored) */}
+          <div 
+            className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group hover:shadow-md transition-all cursor-pointer"
+            onClick={() => onNavigate('FIELDS')}
+          >
               <div className="flex justify-between items-start mb-4">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Najbliższy Termin</span>
-                  <div className="p-2 bg-amber-50 text-amber-500 rounded-xl"><Calendar size={20} /></div>
+                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Menedżer Pola</span>
+                  <div className="p-2 bg-purple-50 text-purple-600 rounded-xl"><Layers size={20} /></div>
               </div>
-              <div className="text-3xl font-black text-slate-800 mb-1">Zakończono</div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase">Kampania zamknięta</div>
+              <div className="text-3xl font-black text-slate-800 mb-1">{farmData.fields.length} <span className="text-lg font-medium text-slate-400">działek</span></div>
+              <div className="text-[10px] text-slate-400 font-bold uppercase flex items-center gap-1 group-hover:text-purple-600 transition-colors">
+                  Przejdź do edycji <ChevronRight size={12} />
+              </div>
           </div>
 
           {/* Card 4: Application Doc */}

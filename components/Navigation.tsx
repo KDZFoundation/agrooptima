@@ -10,6 +10,8 @@ interface NavigationProps {
 }
 
 const Navigation: React.FC<NavigationProps> = ({ currentView, setView, onLogout }) => {
+  const [logoError, setLogoError] = React.useState(false);
+
   const NavItem = ({ view, icon: Icon, label }: { view: ViewState; icon: any; label: string }) => (
     <button
       onClick={() => setView(view)}
@@ -27,9 +29,20 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setView, onLogout 
   return (
     <div className="w-64 bg-white h-screen fixed left-0 top-0 border-r border-slate-200 flex flex-col z-20 hidden md:flex">
       <div className="p-6 border-b border-slate-100">
-        <div className="flex items-center space-x-2 text-emerald-700">
-          <Tractor size={28} />
-          <span className="text-xl font-bold tracking-tight">AgroOptima</span>
+        <div className="flex items-center space-x-2 text-emerald-700 h-10">
+          {!logoError ? (
+            <img 
+                src="/static/logo-advisor.png" 
+                alt="AgroOptima" 
+                className="h-full object-contain" 
+                onError={() => setLogoError(true)}
+            />
+          ) : (
+            <>
+                <Tractor size={28} />
+                <span className="text-xl font-bold tracking-tight">AgroOptima</span>
+            </>
+          )}
         </div>
         <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
             Platforma Doradcy

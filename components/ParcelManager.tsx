@@ -127,10 +127,29 @@ const ParcelManager: React.FC<ParcelManagerProps> = ({ fields, selectedYear, onU
         }
     };
 
+    const handleCopyPreviousYear = () => {
+        const prevYear = selectedYear - 1;
+        const updated = fields.map(f => {
+            const prevHist = f.history?.find(h => h.year === prevYear);
+            if (!prevHist) return f;
+            const currentHistIdx = f.history?.findIndex(h => h.year === selectedYear);
+            
+            const copiedData = { ...prevHist, year: selectedYear };
+            const newHist = [...(f.history || [])];
+            if (currentHistIdx >= 0) newHist[currentHistIdx] = copiedData;
+            else newHist.push(copiedData);
+            
+            return { ...f, history: newHist.sort((a,b)=>b.year-a.year) };
+        });
+        onUpdateFields(updated);
+        alert(`Skopiowano dane z roku ${prevYear} do roku ${selectedYear}.`);
+    };
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
             <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row justify-end items-center gap-4 bg-slate-50">
                 <div className="flex gap-2">
+                    <button onClick={handleCopyPreviousYear} className="text-blue-600 hover:text-blue-700 px-3 py-2 text-sm font-bold flex items-center gap-1 bg-white border border-blue-200 rounded-lg"><Copy size={16} /> Kopiuj z {selectedYear-1}</button>
                     <button onClick={onDownload} className="text-slate-500 hover:text-emerald-600 px-3 py-2 text-sm font-medium transition-colors flex items-center gap-1 bg-white border border-slate-300 rounded-lg hover:border-emerald-300"><Download size={16} /> <span className="hidden sm:inline">Pobierz Szablon</span></button>
                     <button onClick={onImport} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors shadow-sm text-sm font-semibold"><UploadCloud size={18} /><span>Importuj Działki</span></button>
                 </div>

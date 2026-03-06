@@ -31,7 +31,8 @@ export const extractRawText = async (base64Data: string, mimeType: string): Prom
  */
 export const parseOperationNote = async (note: string, fieldNames: string[]): Promise<Partial<FieldOperation>> => {
     const model = "gemini-3-flash-preview";
-    const prompt = `Przetwórz notatkę na zabieg agrotechniczny: "${note}". Pola: ${fieldNames.join(", ")}. Zwróć JSON.`;
+    const prompt = `Przetwórz notatkę na zabieg agrotechniczny: "${note}". Pola: ${fieldNames.join(", ")}. 
+Rozpoznaj typ zabiegu (NAWOZENIE, OPRYSK, SIEW, UPRAWA, ZBIOR, INNE), nazwę produktu (w tym typ nawozu), dawkę (tylko liczba), jednostkę (np. kg/ha, l/ha, t/ha), nazwę pola, czy zabieg jest istotny dla ekoschematów (np. wymieszanie obornika, plan nawożenia) oraz powiązany ekoschemat (jeśli dotyczy). Zwróć JSON.`;
     try {
         const response = await ai.models.generateContent({
             model,
@@ -46,7 +47,9 @@ export const parseOperationNote = async (note: string, fieldNames: string[]): Pr
                         dosage: { type: Type.STRING },
                         unit: { type: Type.STRING },
                         fieldName: { type: Type.STRING },
-                        isEcoSchemeRelevant: { type: Type.BOOLEAN }
+                        isEcoSchemeRelevant: { type: Type.BOOLEAN },
+                        linkedEcoScheme: { type: Type.STRING },
+                        description: { type: Type.STRING }
                     }
                 }
             }

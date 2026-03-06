@@ -2,16 +2,27 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-import models
-import database
+from backend import models
+from backend import database
 from pydantic import BaseModel, EmailStr, ConfigDict
+import os
+import google.generativeai as genai
 
 app = FastAPI(title="AgroOptima API")
+
+# Configure Gemini
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+
+# Mount static files
+if not os.path.exists("backend/static"):
+    os.makedirs("backend/static")
+app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 # --- SECURITY CONFIG ---
 SECRET_KEY = "dd7778dndrdnonlasmdelamnawyraju8"  # ZMIEŃ W PRODUKCJI!
@@ -190,7 +201,40 @@ class CsvTemplateSchema(BaseModel):
     separator: str
     mappings: dict
 
+class LogoRequest(BaseModel):
+    prompt: str
+    filename: str
+
 # --- AUTH API ---
+
+@app.post("/api/generate-logo")
+def generate_logo(request: LogoRequest, current_user: models.User = Depends(get_current_user)):
+    if current_user.role != "ADVISOR":
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash-image')
+        response = model.generate_content(request.prompt)
+        
+        if response.candidates and response.candidates[0].content.parts:
+            part = response.candidates[0].content.parts[0]
+            # Check for inline_data (image)
+            if hasattr(part, 'inline_data') and part.inline_data:
+                image_data = part.inline_data.data
+                filepath = os.path.join("backend/static", request.filename)
+                with open(filepath, "wb") as f:
+                    f.write(image_data)
+                return {"url": f"/static/{request.filename}"}
+            # Fallback check for text if image generation failed or returned text
+            elif hasattr(part, 'text') and part.text:
+                 raise HTTPException(status_code=500, detail=f"Model returned text instead of image: {part.text}")
+            else:
+                 raise HTTPException(status_code=500, detail="No image data in response")
+        else:
+            raise HTTPException(status_code=500, detail="No content in response")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/auth/register", response_model=AuthResponse)
 def register(user_data: UserRegister, db: Session = Depends(database.get_db)):

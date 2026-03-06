@@ -190,10 +190,10 @@ const FarmerList: React.FC<FarmerListProps> = ({ clients, onSelectClient, onAddC
                 <td className="p-4">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold flex-shrink-0">
-                        {client.firstName.charAt(0)}{client.lastName.charAt(0)}
+                        {(client.firstName?.charAt(0) || '')}{(client.lastName?.charAt(0) || '')}
                     </div>
                     <div>
-                        <div className="font-semibold text-slate-900">{client.firstName} {client.lastName}</div>
+                        <div className="font-semibold text-slate-900">{client.firstName || ''} {client.lastName || ''}</div>
                         <div className="text-xs text-slate-500 md:hidden">{client.producerId}</div>
                     </div>
                   </div>

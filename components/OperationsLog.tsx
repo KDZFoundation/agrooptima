@@ -45,9 +45,12 @@ const OperationsLog: React.FC<OperationsLogProps> = ({ operations, fields, onAdd
                 dosage: parsed.dosage || prev.dosage,
                 unit: parsed.unit || prev.unit,
                 fieldId: field?.id || prev.fieldId,
-                isEcoSchemeRelevant: parsed.isEcoSchemeRelevant || prev.isEcoSchemeRelevant
+                isEcoSchemeRelevant: parsed.isEcoSchemeRelevant || prev.isEcoSchemeRelevant,
+                linkedEcoScheme: parsed.linkedEcoScheme || prev.linkedEcoScheme,
+                description: parsed.description || prev.description
             }));
             setSmartNote('');
+            setShowAddModal(true);
         } catch (e) {
             console.error(e);
         } finally {
@@ -70,7 +73,8 @@ const OperationsLog: React.FC<OperationsLogProps> = ({ operations, fields, onAdd
             dosage: formData.dosage!,
             unit: formData.unit!,
             isEcoSchemeRelevant: formData.isEcoSchemeRelevant || false,
-            linkedEcoScheme: formData.linkedEcoScheme
+            linkedEcoScheme: formData.linkedEcoScheme,
+            description: formData.description
         };
 
         onAddOperation(newOp);
@@ -114,7 +118,20 @@ const OperationsLog: React.FC<OperationsLogProps> = ({ operations, fields, onAdd
                 </div>
                 {!isAdvisor && (
                     <button 
-                        onClick={() => setShowAddModal(true)}
+                        onClick={() => {
+                            setFormData({
+                                date: new Date().toISOString().split('T')[0],
+                                type: 'NAWOZENIE',
+                                fieldId: fields[0]?.id || '',
+                                productName: '',
+                                dosage: '',
+                                unit: 'kg/ha',
+                                isEcoSchemeRelevant: false,
+                                linkedEcoScheme: '',
+                                description: ''
+                            });
+                            setShowAddModal(true);
+                        }}
                         className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-200 hover:bg-emerald-700 active:scale-95 transition-all flex items-center gap-2"
                     >
                         <Plus size={18} /> Dodaj wpis
@@ -161,38 +178,50 @@ const OperationsLog: React.FC<OperationsLogProps> = ({ operations, fields, onAdd
 
             <div className="space-y-3">
                 {filteredOps.map(op => (
-                    <div key={op.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-200 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-xl ${getTypeColor(op.type)}`}>
-                                {getTypeIcon(op.type)}
+                    <div key={op.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm hover:border-emerald-200 transition-all overflow-hidden">
+                        <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className={`p-3 rounded-xl ${getTypeColor(op.type)}`}>
+                                    {getTypeIcon(op.type)}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-black text-slate-800">{op.fieldName}</h4>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase">{op.date}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-sm font-bold text-slate-600">{op.productName}</span>
+                                        <span className="text-xs text-slate-400">• {op.dosage} {op.unit}</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <h4 className="font-black text-slate-800">{op.fieldName}</h4>
-                                    <span className="text-[10px] text-slate-400 font-bold uppercase">{op.date}</span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-sm font-bold text-slate-600">{op.productName}</span>
-                                    <span className="text-xs text-slate-400">• {op.dosage} {op.unit}</span>
-                                </div>
+                            
+                            <div className="flex items-center gap-3">
+                                {op.linkedEcoScheme && (
+                                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-1">
+                                        <Sparkles size={12} /> {op.linkedEcoScheme}
+                                    </span>
+                                )}
+                                {op.isEcoSchemeRelevant && (
+                                    <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1">
+                                        <Leaf size={12} /> Ekoschemat
+                                    </span>
+                                )}
+                                {!isAdvisor && (
+                                    <button 
+                                        onClick={() => onDeleteOperation(op.id)}
+                                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                )}
                             </div>
                         </div>
-                        
-                        <div className="flex items-center gap-3">
-                            {op.isEcoSchemeRelevant && (
-                                <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1">
-                                    <Leaf size={12} /> Ekoschemat
-                                </span>
-                            )}
-                            {!isAdvisor && (
-                                <button 
-                                    onClick={() => onDeleteOperation(op.id)}
-                                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                >
-                                    <Trash2 size={18} />
-                                </button>
-                            )}
-                        </div>
+                        {op.description && (
+                            <div className="px-4 pb-4 pt-0 text-sm text-slate-500 italic border-t border-slate-50 mt-2 pt-2">
+                                {op.description}
+                            </div>
+                        )}
                     </div>
                 ))}
                 {filteredOps.length === 0 && (
@@ -266,6 +295,18 @@ const OperationsLog: React.FC<OperationsLogProps> = ({ operations, fields, onAdd
                                     className="w-5 h-5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
                                 />
                                 <label htmlFor="eco_check" className="text-xs font-black text-emerald-800 uppercase tracking-tight cursor-pointer">Wpis do dokumentacji ekoschematów</label>
+                            </div>
+
+                            {formData.isEcoSchemeRelevant && (
+                                <div>
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Powiązany Ekoschemat</label>
+                                    <input type="text" value={formData.linkedEcoScheme || ''} onChange={e => setFormData({...formData, linkedEcoScheme: e.target.value})} placeholder="np. Wymieszanie obornika" className="w-full border p-2.5 rounded-xl bg-slate-50 font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Dodatkowy Opis</label>
+                                <textarea value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Opcjonalny opis zabiegu..." className="w-full border p-2.5 rounded-xl bg-slate-50 font-medium outline-none focus:ring-2 focus:ring-emerald-500 resize-none h-20" />
                             </div>
 
                             <div className="flex gap-2">

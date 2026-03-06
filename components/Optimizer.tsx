@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sparkles, ArrowRight, AlertTriangle, CheckCircle, Wallet, Loader2, BrainCircuit, TrendingUp, ShieldCheck, ChevronRight, BarChart3, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { FarmData, OptimizationResult } from '../types';
@@ -54,6 +54,22 @@ const Optimizer: React.FC<OptimizerProps> = ({ farmData }) => {
     full_name: r.fieldName,
     Zysk: r.potentialGain
   }));
+
+  // Dynamic calculation of Potential %
+  const potentialStats = useMemo(() => {
+      if (!result) return { percent: 0, gain: 0 };
+      
+      const totalGain = result.recommendations.reduce((sum, r) => sum + (r.potentialGain || 0), 0);
+      const baseline = result.totalEstimatedSubsidy - totalGain;
+      
+      // Avoid division by zero
+      const percent = baseline > 0 ? (totalGain / baseline) * 100 : 0;
+      
+      return {
+          percent: percent,
+          gain: totalGain
+      };
+  }, [result]);
 
   return (
     <div className="space-y-6">
@@ -127,7 +143,7 @@ const Optimizer: React.FC<OptimizerProps> = ({ farmData }) => {
                       </div>
                       <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl">
                           <span className="text-[10px] font-black uppercase text-emerald-200/50">Potencjał</span>
-                          <span className="font-black text-emerald-400">+12.4%</span>
+                          <span className="font-black text-emerald-400">+{potentialStats.percent.toFixed(1)}%</span>
                       </div>
                   </div>
               </div>
