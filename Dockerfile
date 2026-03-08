@@ -1,24 +1,8 @@
-FROM node:20-alpine AS build
+FROM python:3.10-slim
 WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-RUN npm run build
-
-FROM node:20-alpine AS runtime
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/public ./public
-
-ENV NODE_ENV=production
-ENV HOST=0.0.0.0
-ENV PORT=8080
+# Kopiujemy z podfolderu 'main'
+COPY main/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY main/ .
 EXPOSE 8080
-
-CMD ["npm", "run", "start"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
