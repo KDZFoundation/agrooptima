@@ -2,8 +2,8 @@
 
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ArrowUpRight, Calendar, FileText, Sun, Map, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Leaf, AlertOctagon, X, Wallet, Info, UploadCloud, Loader2, Database, AlertCircle } from 'lucide-react';
-import { FarmData, FarmerDocument, Field, EcoSchemeCalculation, SubsidyRate, getCampaignStatus } from '../types';
+import { ArrowUpRight, Calendar, FileText, Sun, Map, ChevronRight, Layers, Sprout, PieChart, Download, AlertTriangle, CheckCircle, Leaf, AlertOctagon, X, Wallet, Info, UploadCloud, Loader2, Database, AlertCircle, BrainCircuit } from 'lucide-react';
+import { FarmData, FarmerDocument, Field, EcoSchemeCalculation, SubsidyRate, getCampaignStatus, ViewState } from '../types';
 import { analyzeFarmState } from '../services/farmLogic';
 import { api } from '../services/api';
 import { extractRawText } from '../services/geminiService';
@@ -14,12 +14,13 @@ interface DashboardProps {
     recentDocuments: FarmerDocument[];
     onViewAllDocuments: () => void;
     onManageFields: (tab?: 'PARCELS' | 'CROPS') => void;
+    onNavigate: (view: ViewState) => void;
     selectedYear: number;
     setSelectedYear: (year: number) => void;
     onAddDocument: (doc: FarmerDocument) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields, selectedYear, setSelectedYear, onAddDocument }) => {
+const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], onViewAllDocuments, onManageFields, onNavigate, selectedYear, setSelectedYear, onAddDocument }) => {
     const [showSubsidyDetails, setShowSubsidyDetails] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
@@ -313,6 +314,15 @@ const Dashboard: React.FC<DashboardProps> = ({ farmData, recentDocuments = [], o
                     subtext={deadline.desc}
                     icon={Calendar}
                     color="amber"
+                />
+                <StatCard
+                    title="Strategia AI"
+                    value="Optymalizuj"
+                    subtext="WPR 2023-2027"
+                    icon={BrainCircuit}
+                    color="indigo"
+                    onClick={() => onNavigate('OPTIMIZATION')}
+                    isInteractive
                 />
 
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden group/doc">

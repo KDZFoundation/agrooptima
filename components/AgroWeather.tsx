@@ -29,15 +29,6 @@ const AgroWeather: React.FC<AgroWeatherProps> = ({ fields }) => {
                 // Fixed: Explicitly typed uniqueCrops as string[] to resolve the 'unknown[]' inference issue
                 const uniqueCrops: string[] = Array.from(new Set(fields.map(f => f.crop)));
                 
-                // Próba pobrania realnej lokalizacji jeśli uprawnienia nadane
-                if ("geolocation" in navigator) {
-                    navigator.geolocation.getCurrentPosition(async (pos) => {
-                        const lat = pos.coords.latitude.toFixed(2);
-                        const lon = pos.coords.longitude.toFixed(2);
-                        setLocation(`Działki w okolicy ${lat}, ${lon}`);
-                    });
-                }
-
                 const result = await analyzeAgroWeather(mockWeather, location, uniqueCrops);
                 setAnalysis(result);
             } catch (e) {

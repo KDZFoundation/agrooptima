@@ -9,7 +9,7 @@ const getBaseUrl = () => {
     return '';
 };
 
-const BASE_URL = "https://agrooptima-842716482223.europe-central2.run.app";
+const BASE_URL = getBaseUrl();
 const API_BASE_URL = BASE_URL ? `${BASE_URL}/api` : '/api';
 
 const getHeaders = () => {

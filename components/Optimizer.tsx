@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Sparkles, ArrowRight, AlertTriangle, CheckCircle, Wallet, Loader2, BrainCircuit, TrendingUp, ShieldCheck, ChevronRight, BarChart3, Info } from 'lucide-react';
+import { Sparkles, ArrowRight, AlertTriangle, CheckCircle, Wallet, Loader2, BrainCircuit, TrendingUp, ShieldCheck, ChevronRight, BarChart3, Info, Calculator } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { FarmData, OptimizationResult } from '../types';
 import { getFarmOptimization } from '../services/geminiService';
@@ -155,7 +155,19 @@ const Optimizer: React.FC<OptimizerProps> = ({ farmData }) => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
           
           {/* Main List */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="lg:col-span-2 space-y-6">
+            {result.strategySummary && (
+                <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl shadow-sm">
+                    <h3 className="text-sm font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2 mb-3">
+                        <Sparkles size={18} className="text-emerald-500" />
+                        Strategia AgroOptima AI
+                    </h3>
+                    <p className="text-emerald-900 leading-relaxed font-medium">
+                        {result.strategySummary}
+                    </p>
+                </div>
+            )}
+
             <div className="flex items-center justify-between px-2">
                 <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                     <ShieldCheck className="text-emerald-600" size={18} />
@@ -163,40 +175,74 @@ const Optimizer: React.FC<OptimizerProps> = ({ farmData }) => {
                 </h3>
             </div>
             
-            {result.recommendations.map((rec) => (
-              <div key={rec.fieldId} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-lg transition-all group overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full -mr-12 -mt-12 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
-                  <div>
-                      <h4 className="font-black text-xl text-slate-800 tracking-tight">{rec.fieldName}</h4>
-                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">ID: {rec.fieldId}</p>
+            <div className="space-y-4">
+                {result.recommendations.map((rec) => (
+                  <div key={rec.fieldId} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-300 hover:shadow-lg transition-all group overflow-hidden relative">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full -mr-12 -mt-12 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 relative z-10">
+                      <div>
+                          <h4 className="font-black text-xl text-slate-800 tracking-tight">{rec.fieldName}</h4>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">ID: {rec.fieldId}</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
+                        <TrendingUp size={16} className="text-emerald-600" />
+                        <span className="text-emerald-700 font-black text-sm">
+                            +{rec.potentialGain.toLocaleString()} PLN
+                        </span>
+                      </div>
+                    </div>
+    
+                    <div className="flex flex-wrap gap-2 mb-4 relative z-10">
+                        {rec.suggestedEcoSchemes.map((eco, idx) => (
+                          <span key={idx} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">
+                            {eco}
+                          </span>
+                        ))}
+                    </div>
+    
+                    <div className="bg-slate-50 p-4 rounded-xl text-sm text-slate-600 leading-relaxed font-medium italic border-l-4 border-emerald-500 relative z-10">
+                       {rec.reasoning}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
-                    <TrendingUp size={16} className="text-emerald-600" />
-                    <span className="text-emerald-700 font-black text-sm">
-                        +{rec.potentialGain.toLocaleString()} PLN
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 mb-4 relative z-10">
-                    {rec.suggestedEcoSchemes.map((eco, idx) => (
-                      <span key={idx} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">
-                        {eco}
-                      </span>
-                    ))}
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl text-sm text-slate-600 leading-relaxed font-medium italic border-l-4 border-emerald-500 relative z-10">
-                   {rec.reasoning}
-                </div>
-              </div>
-            ))}
+                ))}
+            </div>
           </div>
 
           {/* Analysis Sidebar */}
           <div className="space-y-6">
+            {result.pointBalance && (
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden relative">
+                    <div className={`absolute top-0 right-0 w-1 h-full ${result.pointBalance.isMet ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-6">
+                        <Calculator size={18} className="text-emerald-600" />
+                        Bilans Punktowy
+                    </h3>
+                    
+                    <div className="flex items-end gap-2 mb-2">
+                        <span className={`text-4xl font-black ${result.pointBalance.isMet ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {result.pointBalance.earned.toFixed(1)}
+                        </span>
+                        <span className="text-slate-400 font-bold mb-1">/ {result.pointBalance.required.toFixed(1)} pkt</span>
+                    </div>
+                    
+                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-4">
+                        <div 
+                            className={`h-full transition-all duration-1000 ${result.pointBalance.isMet ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                            style={{ width: `${Math.min((result.pointBalance.earned / result.pointBalance.required) * 100, 100)}%` }}
+                        ></div>
+                    </div>
+
+                    <div className={`flex items-center gap-2 text-xs font-bold ${result.pointBalance.isMet ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {result.pointBalance.isMet ? (
+                            <><CheckCircle size={14} /> Warunek wejścia spełniony</>
+                        ) : (
+                            <><AlertTriangle size={14} /> Brakuje {(result.pointBalance.required - result.pointBalance.earned).toFixed(1)} pkt</>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-6">
                     <BarChart3 size={18} className="text-blue-500" />

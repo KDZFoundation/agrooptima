@@ -214,6 +214,12 @@ export interface OptimizationResult {
     totalEstimatedSubsidy: number;
     recommendations: OptimizationRecommendation[];
     complianceNotes: string;
+    strategySummary?: string;
+    pointBalance?: {
+        earned: number;
+        required: number;
+        isMet: boolean;
+    };
 }
 
 export interface OptimizationRecommendation {

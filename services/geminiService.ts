@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { FarmData, OptimizationResult, SemanticQueryResult, FarmerApplicationData, FieldOperation } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 /**
  * Wyodrębnia tekst z PDF/Obrazu (OCR).
@@ -61,11 +61,27 @@ Rozpoznaj typ zabiegu (NAWOZENIE, OPRYSK, SIEW, UPRAWA, ZBIOR, INNE), nazwę pro
 };
 
 /**
- * Optymalizacja dopłat z użyciem JSON Schema.
+ * Optymalizacja dopłat z użyciem zaawansowanej analizy WPR 2023-2027.
  */
 export const getFarmOptimization = async (farmData: FarmData): Promise<OptimizationResult> => {
-    const model = "gemini-3-flash-preview";
-    const prompt = `Jesteś ekspertem dopłat bezpośrednich w Polsce. Przeanalizuj pola rolnika i dobierz ekoschematy. Dane: ${JSON.stringify(farmData.fields)}. Zwróć JSON.`;
+    const model = "gemini-3-pro-preview"; // Upgrade to Pro for better reasoning
+    const prompt = `
+Jesteś ekspertem ds. dopłat bezpośrednich i ekoschematów w Polsce (WPR 2023-2027).
+Twoim zadaniem jest przeanalizowanie danych gospodarstwa i zaproponowanie optymalnej strategii maksymalizacji dopłat.
+
+DANE GOSPODARSTWA:
+- Całkowita powierzchnia UR: ${farmData.profile.totalAreaUR} ha
+- Działki i uprawy: ${JSON.stringify(farmData.fields.map(f => ({ id: f.id, name: f.name, area: f.area, crop: f.crop, history: f.history })))}
+
+WYMAGANIA ANALIZY:
+1. Dobierz ekoschematy dla każdej działki (np. Rolnictwo Węglowe: Międzyplony, Obornik, Plan Nawożenia, Uproszczone Uprawy).
+2. Uwzględnij system punktowy (1 pkt = ok. 100 PLN).
+3. Sprawdź warunek wejścia (min. 25% punktów z powierzchni UR * 5 pkt/ha).
+4. Zweryfikuj zgodność z GAEC 7 (zmianowanie) na podstawie historii upraw.
+5. Zaproponuj konkretne działania (np. "Wymieszaj słomę z glebą na działce X").
+
+Zwróć JSON zgodny ze schematem.
+`;
     try {
         const response = await ai.models.generateContent({
             model,
@@ -89,13 +105,23 @@ export const getFarmOptimization = async (farmData: FarmData): Promise<Optimizat
                                 }
                             }
                         },
-                        complianceNotes: { type: Type.STRING }
+                        complianceNotes: { type: Type.STRING },
+                        strategySummary: { type: Type.STRING },
+                        pointBalance: {
+                            type: Type.OBJECT,
+                            properties: {
+                                earned: { type: Type.NUMBER },
+                                required: { type: Type.NUMBER },
+                                isMet: { type: Type.BOOLEAN }
+                            }
+                        }
                     }
                 }
             }
         });
         return JSON.parse(response.text || "{}");
     } catch (error: any) {
+        console.error("Optimization Error:", error);
         throw error;
     }
 };

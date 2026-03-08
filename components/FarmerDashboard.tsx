@@ -1,6 +1,6 @@
 
 import React, { useMemo } from 'react';
-import { Calendar, FileText, Map, TrendingUp, Leaf, CheckCircle, AlertTriangle, ChevronRight, Sun, Layers, AlertCircle } from 'lucide-react';
+import { Calendar, FileText, Map, TrendingUp, Leaf, CheckCircle, AlertTriangle, ChevronRight, Sun, Layers, AlertCircle, BrainCircuit } from 'lucide-react';
 import { FarmData } from '../types';
 import { analyzeFarmState } from '../services/farmLogic';
 
@@ -147,7 +147,23 @@ const FarmerDashboard: React.FC<FarmerDashboardProps> = ({ farmData, onNavigate,
               </div>
           </div>
 
-          {/* Card 4: Application Doc */}
+          {/* Card 4: AI Strategy */}
+          <div 
+            className="bg-emerald-900 p-6 rounded-2xl border border-emerald-800 shadow-sm relative group hover:shadow-xl transition-all cursor-pointer overflow-hidden"
+            onClick={() => onNavigate('OPTIMIZATION')}
+          >
+              <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/20 rounded-full -mr-8 -mt-8 blur-2xl"></div>
+              <div className="flex justify-between items-start mb-4 relative z-10">
+                  <span className="text-xs font-black text-emerald-300 uppercase tracking-widest">Strategia AI</span>
+                  <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30"><BrainCircuit size={20} /></div>
+              </div>
+              <div className="text-2xl font-black text-white mb-1 relative z-10">Optymalizuj</div>
+              <div className="text-[10px] text-emerald-300 font-bold uppercase flex items-center gap-1 group-hover:text-white transition-colors relative z-10">
+                  Maksymalizuj dopłaty <ChevronRight size={12} />
+              </div>
+          </div>
+
+          {/* Card 5: Application Doc */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group hover:shadow-md transition-all cursor-pointer" onClick={() => onNavigate('DOCUMENTS')}>
               <div className="flex justify-between items-start mb-4">
                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Wniosek o Płatność</span>

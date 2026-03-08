@@ -226,6 +226,7 @@ const App: React.FC = () => {
             recentDocuments={currentClient?.documents || []}
             onViewAllDocuments={() => setCurrentView('DOCUMENTS')}
             onManageFields={(tab) => { if (tab) setFieldManagerTab(tab); setCurrentView('FIELDS'); }}
+            onNavigate={setCurrentView}
             selectedYear={selectedYear}
             setSelectedYear={setSelectedYear}
             onAddDocument={handleAddDocument}
